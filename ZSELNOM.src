@@ -1,0 +1,69 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+$ACTION
+
+Infbox ACTION
+Case ACTION
+  When "SEL_TABLE"        : Gosub SEL_TABLE
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+##############################################################
+$SEL_TABLE
+Infbox TABLE
+  Case TABLE
+    When "INIT"       : Gosub INIT
+    When "ZSELNOM"   : Gosub SEL_ZSELNOM
+  Endcase
+Return
+
+##############################################################
+$INIT
+  PARAM(0) = ""
+  PARAM(1) = "NOM"
+Return
+
+##############################################################
+$VERF_TABLE
+  Case TABLE
+    When "ZSELNOM"   : Gosub VERF_ZSELNOM
+  Endcase
+Return
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+##############################################################
+$SEL_ZSELNOM
+#Local Clbfile LCRIT(2)
+#
+#  If !clalev([F:ZTCT]) Then : Local File TABCTL [F:ZTCT] : Endif
+#  LCRIT  = "TCT = 'NOM'"
+#  Default File [F:ZTCT]
+#  Filter [F:ZTCT] Where evalue(LCRIT)
+#
+#  NBCOL       = 0                                                               # número de la columna
+#  TIT(NBCOL)  = "Nombre"                                                        # título de la ventana
+#  NBCOL       += 1
+#  TIT(NBCOL)  = "Código alfanumérico"                                           # título de la primera columna
+#  COL(NBCOL)  = "ALPCOD"                                                        # nombre del campo a mostrar en la segunda columna
+#  NBCOL       += 1
+#  TIT(NBCOL)  = "Descripción código"                                            # título de la segunda columna
+#  COL(NBCOL)  = "DESCOD"                                                        # nombre del campo a mostrar en la primera columna
+Return
+
+##############################################################
+$VERF_ZSELNOM
+Return
+
+##############################################################
+#################    ACCIONES DE CAMPO    ####################
+##############################################################
+
+##############################################################
+##################    FUNCIONES PROPIAS    ###################
+##############################################################

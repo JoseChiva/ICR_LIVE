@@ -1,0 +1,115 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$ 
+Infbox func CNSCPTSPE.GET_ZNUMFACCLI("SA220014")
+End
+##############################################################
+
+# Z2010 - SPE/EJC-020-10 - JC.04062022 - Ventas Facturación. Número de factura largo para presentación SII
+# ID01 - 19/08/2022 - J.Rodriguez - Se agrega campo "descripción contrapartida"
+# 06.388.125 - 06/09/2022.AMG  CAMBIOS EN CUENTAS CONTABLES
+############################################################################################################
+
+$ACTION
+
+#If GUSER="ADMIN" Then : Infbox ACTION : Endif
+Case ACTION
+  When "SETBOUT"    : Gosub SETBOUT
+  When "AV_AFFICHE"          : Gosub AV_AFFICHE
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+##############################################################
+$SETBOUT
+Local Integer LCON
+
+# Z2010.ini
+  For LCON=0 To [M:CPT2]NBLIG-1
+    [M:CPT2]ZNUMFACCLI(LCON) = func CNSCPTSPE.GET_ZNUMFACCLI([M:CPT2]NUM(LCON))
+    Affzo [M:CPT2]ZNUMFACCLI(LCON)
+  Next
+# Z2010.fin
+Return
+
+$AV_AFFICHE
+Local Decimal TMPSOL
+If left$([M:CPT1]LIBSOL,1)<>"D"
+  TMPSOL=-1*[M:CPT1]SOLDE
+Else
+  TMPSOL=[M:CPT1]SOLDE
+Endif
+#
+For I = [M:CPT2]NBLIG-1 To 0 Step -1
+  If I = [M:CPT2]NBLIG-1
+    [M:CPT2]ZSALINILIN(I)=TMPSOL
+  Else
+    [M:CPT2]ZSALINILIN(I)=TMPSOL+[M:CPT2]CDTLED(I+1)-[M:CPT2]DEBLED(I+1)
+    TMPSOL=TMPSOL+[M:CPT2]CDTLED(I+1)-[M:CPT2]DEBLED(I+1)
+  Endif
+  #ID01ini
+    Gosub DES_OFFACC
+  #ID01fin
+
+#06.388.125.INI
+ # Affzo [M:CPT2]ZSALINILIN(I)
+#06.388.125.FIN
+Next
+
+#06.388.125.INI
+For I =0  To [M:CPT2]NBLIG-1
+  Affzo [M:CPT2]ZSALINILIN(I)
+Next
+#06.388.125.FIN
+
+[M:CPT1]ZSALINI=TMPSOL+[M:CPT2]CDTLED(0)-[M:CPT2]DEBLED(0)
+Return
+
+#ID01ini
+$DES_OFFACC
+If !clalev([F:BPR])  : Local File BPARTNER [F:BPR]  : Endif
+If !clalev([F:ZGAC]) : Local File GACCOUNT [F:ZGAC] : Endif
+
+If dim([M:CPT2]ZOFFDES(I))>-1
+	Raz [F:BPR]
+	Read [F:BPR]BPR0 = [M:CPT2]OFFACC(I)
+	If fstat
+	  Raz [F:ZGAC]
+	  Read [F:ZGAC]GAC0 = [M:CPT1]COA;[M:CPT2]OFFACC(I)
+	  If fstat : Return : Endif
+	  [M:CPT2]ZOFFDES(I) = [F:ZGAC]DES
+	Else [M:CPT2]ZOFFDES(I) = [F:BPR]BPRNAM
+	Endif
+	Affzo [M:CPT2]ZOFFDES(I)
+Endif
+Return
+#ID01fin
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+
+##############################################################
+#################    ACCIONES DE CAMPO    ####################
+##############################################################
+
+##############################################################
+##################    FUNCIONES PROPIAS    ###################
+##############################################################
+##############################################################
+# Z2010
+Funprog GET_ZNUMFACCLI(PNUM)
+Value Char PNUM
+
+Local Char LRET(150)
+
+  If !clalev([F:ZSIH]) Then : Local File SINVOICE [F:ZSIH] : Endif
+  Read [F:ZSIH]SIH0 = PNUM
+  If !fstat Then
+    LRET = [F:ZSIH]ZNUMFACCLI
+  Endif
+  Close Local File [ZSIH]
+
+End LRET

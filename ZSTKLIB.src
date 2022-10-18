@@ -1,0 +1,60 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# SPE-010-03 - JC.23032022.Desarrollo específico asignación var existencias según artículo
+##########################################################################################
+
+
+$ACTION
+
+#If GUSER="ADEV" Then : Infbox ACTION : Endif
+Case ACTION
+  When "BEFWRISTJ"    : Gosub BEFWRISTJ           # punto entrada antes de escribir nuevo registro en STOJOU
+  When "BEFREWSTJ"    : Gosub BEFREWSTJ           # punto entrada antes de reescribir nuevo registro en STOJOU
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+##############################################################
+$BEFWRISTJ
+  Gosub ASIGNAVAREXIST                                                    # SPE-010-03.new
+Return
+
+##############################################################
+$BEFREWSTJ
+Return
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+##############################################################
+# SPE-010-03
+$ASIGNAVAREXIST
+
+  If !clalev([F:ZITM]) Then : Local File ITMMASTER  [F:ZITM] : Endif
+  If !clalev([F:ZCAC]) Then : Local File GACCCODE   [F:ZCAC] : Endif
+
+  If [F:STJ]ENTCOD <> '' and [F:STJ]NUMVCR = ''
+    Read [F:ZITM]ITM0 = [F:STJ]ITMREF
+    If !fstat Then
+      Read [F:ZCAC]CAC0 = 1;[F:ZITM]ACCCOD;GLANGUE
+      If !fstat Then
+        If [F:ZCAC]ACC(11) = '' Then
+          [F:STJ]ENTCOD = ''
+        Endif
+      Endif
+    Endif
+  Endif
+
+  Close Local File [ZITM],[ZCAC]
+Return
+
+##############################################################
+#################    ACCIONES DE CAMPO    ####################
+##############################################################
+
+##############################################################
+##################    FUNCIONES PROPIAS    ###################
+##############################################################

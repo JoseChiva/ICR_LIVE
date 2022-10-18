@@ -1,0 +1,23 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# Gestión de la máscara GACCENT2 (Especifico)
+# 06.359.591 - 20/06/2022 - JR
+######################################################################################
+## Etiqueta añadida por el supervisor (pantalla GACCENT2) 20/06/2022 15:02:36 (AURJR)
+######################################################################################
+$ACTION
+Case ACTION
+ When Default
+Endcase
+Return
+
+#> 06.359.591 - 20/06/2022 - JR
+Subprog D_TAX(VALEUR)
+Variable Char    VALEUR()
+If VALEUR<>"" | GIMPORT : End : Endif
+Call D_TAX(VALEUR) From SUBGA0
+If VALEUR <> "" : VALEUR = 'SP999' : Endif
+End
+#< 06.359.591
+
+
+######################################################################################

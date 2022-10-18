@@ -1,0 +1,558 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$ 
+#**********************************************************************#
+#    Modification                                                      #
+# XXXXX XX.XX.XXXX xxxxxx_x : XXXXXXXXXXXXXXXXXXXXXXXXXXXX             #
+# FPE   12.11.2021 X3-264817 : Read param NIVBONPAYE with argument FCY #
+# Issue X3-273343 - 2022-03-29 by MANOW: fixed name of MODELE passed to func IMPEXPLIB.FIND_FLD_IN_TEMPLATE
+# Issue X3-205959 - 2020-09-14 by MRDAB/MAPON: fixed inconsistency between Pay-to/Pay-by vs Address vs Bank account also for import/export templates
+# Issue X3-195197 - 2020-08-04 by MAPON : As a data administrator user #
+#                                         I want to be able to import  #
+#                                         bank ID in open items.       #
+# Issue X3-133919 - 2020-07-03 by FHA : VCS field in DUD for XX5A add-on
+# FPE     17.08.2018 X3-75263 : If CURTYP field is deleted from the    #
+#                               import template, initilize it as in    #
+#                               GESBIC function (SUBBIC script).       #
+# Issue X3-99385 - 2018-07-12 by CBO : Import large number of Supplier BP invoices failed on 2018 R4 cloud site
+# FPE/JMA 30.01.2018 X3-66221 : Ability to import currency rate in     #
+#                               AP/AR invoices                         #
+########################################################################
+
+$ACTION
+Case ACTION
+ When "IMP_OUVRE"     : Gosub OUVRE
+ When "IMPORT"        : Gosub IMPORT
+ When "IMP_LIENS"     : Gosub LIENS
+ When "IMP_INICRE"    : Gosub IMP_INICRE # Issue X3-241301 - 2021-09-08 by JOPAU
+ When "IMP_CREATION"  : Gosub CREATION
+ When "IMP_MODIF"     : Gosub MODIF
+ When "IMP_ZONE"      : Gosub IMP_ZONE
+ When "IMP_TAB"       : Gosub IMP_ZONE
+ When "IMP_VERIF_CRE" : Gosub VERIF_CRE
+ When "IMP_FERME"     : Gosub IMP_FERME
+
+Endcase
+Return
+
+###############################################
+### Ouverture du masque des échéances
+### (en gestion d'objet il n'est pas ouvert)
+###############################################
+$OUVRE
+If clalev([M:DUD1])=0 : Local Mask BPCDUD     [DUD1] : Endif
+If clalev([F:DUD])=0  : Local File GACCDUDATE [DUD]  : Endif
+If clalev([F:FCY])=0  : Local File FACILITY   [FCY]  : Endif
+If clalev([F:CPY])=0  : Local File COMPANY    [CPY]  : Endif
+If clalev([F:TCU])=0  : Local File TABCUR     [TCU]  : Endif
+If clalev([F:TAM])=0  : Local File TABPAM     [TAM]  : Endif
+
+Local Integer AX , INDAX, OPTV , OPTF , NBANA , OKCHAMP
+Local Integer USRPAZ
+Local Integer TAX_SIL
+Local Char LLEVPAZ(3)
+Global Integer GAMTVAT_SIL
+
+Gosub OUVRE_ACT_CODE From SUBBIS2 # Issue X3-99385
+# Issue X3-264817
+#Call PARAMUTIL("NIVBONPAYE",LLEVPAZ,"","") From SUBAUS
+# Read input file to determine FCY.
+# Use [YMP] abbr. to not interfere with [IMP], used by the import process.
+# FICTMP contains a valid file name (has been tested in $CONTROLE @ TRTIMPOBJ)
+Local Char    FCY(GLONFCY)
+Local Char    SEPFLD(1)
+Local Integer LINE, FIELDNO
+# Find field separator for template, plus line and field no. where FCY is.
+If !func IMPEXPLIB.FIND_FLD_IN_TEMPLATE(MODELE, "FCY", LINE, FIELDNO, SEPFLD) #X3-273343 by MANOW 29.03.2022
+  [L]FCY = "": [L]SEPFLD = ","  # If not found.
+Else
+  Openi FICTMP Using [YMP]
+  Iomode adxifs [L]SEPFLD Using [YMP]  # Set field separator per template's setup
+  Iomode adxium GASCII Using [YMP]     # Set file type to ASCII
+  INPUT_LINE = 0
+  While INPUT_LINE <> LINE
+    Rdseq VALIMP Using [YMP]
+    INPUT_LINE +=1
+  Wend
+  Openi Using [YMP]
+  [L]FCY = num$(evalue("VALIMP(FIELDNO)"))
+Endif
+#Call PARAMUTIL("NIVBONPAYE", LLEVPAZ, "", [L]FCY) From SUBAUS
+# End issue X3-264817
+
+[L]USRPAZ = min(len(mess(0,510,1)),val(LLEVPAZ))
+
+Local Char CRITSUPPR (250)
+
+Local Char    COMPTE(GLONGAC)
+Local Integer NLED, TLED, VU
+
+# Issue X3-241301 - 2021-09-06 by JOPAU
+Global Integer G_SIH_STA    : # stockage statut facture
+Global Integer G_GIMP17, G_GIMP18, G_GIMP19, G_GIMP20, G_GIMP21, G_GIMP22
+Global Char    GHASHSIGN(250)
+Global Integer GHASHCTR
+Global Integer GHASHCERTIF
+Global Char    GEXTINVNUM(60)   # Issue X3-238154 - Fill DKSDOCNUM in DKSDATA by DAFER
+Global Char    GSYSENTDAT(19)
+Global Char    GATCUD(100)
+
+Call TST_CHAMP ("SIH","*17", G_GIMP17)         From SUBIMPOBJ #Check if digital signature field exists
+Call TST_CHAMP ("SIH","*18", G_GIMP18)         From SUBIMPOBJ #Check if Doc number field exists
+Call TST_CHAMP ("SIH","*19", G_GIMP19)         From SUBIMPOBJ #Check if signature key field exists
+Call TST_CHAMP ("SIH","*20", G_GIMP20)         From SUBIMPOBJ #Check if Certificate number field exists
+Call TST_CHAMP ("SIH","*21", G_GIMP21)         From SUBIMPOBJ #Check if System Entry Date field exists
+Call TST_CHAMP ("SIH","*22", G_GIMP22)         From SUBIMPOBJ #Check if ATCUD field exists
+
+# End issue X3-241301
+
+Return
+
+$IMP_FERME
+# Issue X3-241301 - 2021-09-06 by JOPAU
+If dim(GHASHSIGN)>0     : Kill GHASHSIGN    : Endif
+If dim(GEXTINVNUM)>0    : Kill GEXTINVNUM   : Endif
+If dim(GHASHCTR)>0      : Kill GHASHCTR     : Endif
+If dim(GHASHCERTIF)>0   : Kill GHASHCERTIF  : Endif
+If dim(GSYSENTDAT)>0    : Kill GSYSENTDAT   : Endif
+If dim(GATCUD)>0        : Kill GATCUD       : Endif
+
+If dim(G_SIH_STA)>0       : Kill [V]G_SIH_STA    : Endif
+# End issue X3-241301
+
+Return
+###############################################
+### Chargement des échéances en modif
+###############################################
+$LIENS
+Call LECTURE("FCY",[F:SIH]FCY,"") From CONTOBJ
+Call LECTURE("CPY",[F:FCY]LEGCPY,"") From CONTOBJ
+
+Raz [M:DUD1]
+[M:DUD1]AMTTOT = [F:SIH]AMTATI
+nolign = 0
+For [DUD]DUD1 Where ACCNUM=[F:SIH]ACCNUM
+ nolign += 1
+ [M:DUD1] = [F:DUD]
+ If nolign=1
+  [M:DUD1]DUDCUR = [F:DUD]CUR
+ Endif
+Next
+[M:DUD1]NBECH = nolign
+Return
+
+###############################################
+### Lecture d'un enregistrement
+###############################################
+$IMPORT
+Case IMPFIC
+
+
+ When "SIH" : # En-tête de facture
+
+  If GREP="C" :  Raz [M:DUD1] : Endif
+  Call LEC_CPY([F:SIH]CPY) From CPTLEC
+  For AX=0 To dim([F:SIH]DIE)-1
+   If [F:SIH]DIE(AX)<>""
+    VU = find([F:SIH]DIE(AX),[F:CPY]DIE(0..dim([F:CPY]DIE)-1))
+    If VU<>0
+     [M]SAIAXE(AX) = [F:CPY]DACDIE(VU-1)
+    Else
+     [M]SAIAXE(AX) = 2
+    Endif
+   Endif
+  Next
+  If [F:SIH]STARPT>0 : [M]STARPT = [F:SIH]STARPT : Endif
+
+  # Issue X3-241301 - 2021-09-06 by JOPAU
+  If  func PORLEGLIB.PORLEG([F:SIH]FCY, "") & func PORLEGLIB.DIGSIGN([F:SIH]FCY, "")
+    #Only POR companies and if subject to digital signature...
+    Raz GHASHSIGN
+    Raz GHASHCTR
+    Raz GHASHCERTIF
+    Raz GEXTINVNUM
+    Raz GSYSENTDAT
+    Raz GATCUD
+    Raz G_SIH_STA
+
+    If G_GIMP17 : GHASHSIGN   = GIMP(17)        : Endif
+    If G_GIMP18 : GEXTINVNUM  = GIMP(18)        : Endif
+    If G_GIMP19 : GHASHCERTIF = val(GIMP(19))   : Endif
+    If G_GIMP20 : GHASHCTR    = val(GIMP(20))   : Endif
+    If G_GIMP21 : GSYSENTDAT  = GIMP(21)        : Endif
+    If G_GIMP22 : GATCUD      = func PORLEGQRCLIB.GET_GIMP22(GIMP(22))  : Endif
+
+    #If num$(GHASHSIGN)+num$(GEXTINVNUM)+num$(GHASHCERTIF)+num$(GHASHCTR)+num$(GSYSENTDAT)<>""
+    #  [V]G_SIH_STA=3 #If it is signed, we mark it as posted
+    #Endif
+  Endif
+  # End issue X3-241301
+
+
+ When "SIL" : # Lignes de factures
+
+  If GREP="M" & [M]STA=3 : OK = -1 : Return : Endif
+
+  ## Recherche du numéro de ligne en modif
+  If GREP="M" & [F:SIL]LIG>=1 & [F:SIL]LIG<=[M]NBLIG : # Modif ligne existante
+   nolign = [F:SIL]LIG
+  Else                                               : # Ajout d'une ligne
+   [M]NBLIG += 1
+   nolign = [M]NBLIG
+  Endif
+
+  [F:SIL]LIG = nolign : # Mémo pour ligne ana
+
+  For NLED=1 To GNBTYPLED
+   Assign "[M]ACC"+num$(NLED)+"("+num$(nolign-1)+")" With [F:SIL]ACC(GTYPLED(NLED)-1)
+  Next
+
+  ## <Dem 53100, 61421> Pour importer les codes taxes du fichier de données (et non initialiser les taxe1 et taxe2
+  ## par les codes taxes par défaut du compte), les champs VAT, TAX1 et TAX2 doivent être définis dans le modèle d'import.
+  TAX_SIL=1
+
+  Call TST_CHAMP("SIL","VAT",OKCHAMP) From SUBIMPOBJ
+  If !OKCHAMP : TAX_SIL=0 : Endif
+  Call TST_CHAMP("SIL","TAX1",OKCHAMP) From SUBIMPOBJ
+  If !OKCHAMP : TAX_SIL=0 : Endif
+  Call TST_CHAMP("SIL","TAX2",OKCHAMP) From SUBIMPOBJ
+  If !OKCHAMP : TAX_SIL=0 : Endif
+  If TAX_SIL
+   [M:BIC3]VAT(nolign-1) = [F:SIL]VAT
+   [M:BIC3]TAX1(nolign-1) = [F:SIL]TAX1
+   [M:BIC3]TAX2(nolign-1) = [F:SIL]TAX2
+  Endif
+
+  ## <Dem 61421> Pour importer les factures avec les montants de taxes (AMTVAT, AMTTAX1, AMTTAX2) du fichier de données (non
+  ## recalcul des montants de taxes), les 3 trois champs AMTVAT, AMTTAX1 et AMTTAX2 doivent être définis dans le modèle d'import.
+  GAMTVAT_SIL=1
+
+  Call TST_CHAMP("SIL","AMTVAT",OKCHAMP) From SUBIMPOBJ
+  If !OKCHAMP : GAMTVAT_SIL=0 : Endif
+  Call TST_CHAMP("SIL","AMTTAX1",OKCHAMP) From SUBIMPOBJ
+  If !OKCHAMP : GAMTVAT_SIL=0 : Endif
+  Call TST_CHAMP("SIL","AMTTAX2",OKCHAMP) From SUBIMPOBJ
+  If !OKCHAMP : GAMTVAT_SIL=0 : Endif
+  If GAMTVAT_SIL
+  [M:BIC3]AMTVAT(nolign-1)  = [F:SIL]AMTVAT
+  [M:BIC3]AMTTAX1(nolign-1) = [F:SIL]AMTTAX1
+  [M:BIC3]AMTTAX2(nolign-1) = [F:SIL]AMTTAX2
+  Endif
+  ## <Fin PP>
+
+  # Management of periodicity
+  Call TST_CHAMP("SIL","STRDAT",OKCHAMP) From SUBIMPOBJ
+  If OKCHAMP : [M:BIC3]STRDAT(nolign-1)  = [F:SIL]STRDAT : Endif
+  Call TST_CHAMP("SIL","ENDDAT",OKCHAMP) From SUBIMPOBJ
+  If OKCHAMP : [M:BIC3]ENDDAT(nolign-1)  = [F:SIL]ENDDAT : Endif
+  Call TST_CHAMP("SIL","PERNBR",OKCHAMP) From SUBIMPOBJ
+  If OKCHAMP : [M:BIC3]PERNBR(nolign-1)  = [F:SIL]PERNBR : Endif
+  Call TST_CHAMP("SIL","PERTYP",OKCHAMP) From SUBIMPOBJ
+  If OKCHAMP : [M:BIC3]PERTYP(nolign-1)  = [F:SIL]PERTYP : Endif
+  #
+
+ When "SIA" : # Lignes analytiques
+
+  If GREP="M" & [M]STA=3 : OK = -1 : Return : Endif
+
+  ## Recherche no de ligne géné
+  If GREP="M" & [F:SIA]LIG>=1 & [F:SIA]LIG<=[M]NBLIG : # Si ligne OK
+   nolign = [F:SIA]LIG
+  Else                                               : # Sinon dernière ligne lue
+   nolign = [F:SIL]LIG
+  Endif
+
+  ## Recherche no de ligne ana
+  If [M:BIC3]PTV(nolign-1)=0 : # On génére une ligne "bidon"
+   K = [M:VT2]PTVENT+1
+   [M:VT2]PTVENT = K
+   [M:BIC3]PTV(nolign-1) = K
+   [M:BIC3]PTF(nolign-1) = K
+  Else
+   NBANA = [M:BIC3]PTF(nolign-1)-[M:BIC3]PTV(nolign-1)+1
+   If [F:SIA]ANALIG>=1 & [F:SIA]ANALIG<=NBANA : # Modif ligne existante
+    K = [M:BIC3]PTV(nolign-1)+[F:SIA]ANALIG-1
+   Elsif [M:VT2]PTVENT=[M:BIC3]PTF(nolign-1)    : # Y'a la place
+    K = [M:VT2]PTVENT+1
+    [M:VT2]PTVENT         = K
+    [M:BIC3]PTF(nolign-1) = K
+   Else                                      : # On met plus loin
+    OPTV = [M:BIC3]PTV(nolign-1)
+    OPTF = [M:BIC3]PTF(nolign-1)
+    K = [M:VT2]PTVENT+1
+    [M:BIC3]PTV(nolign-1) = K
+    For I=0 To OPTF-OPTV
+     [M:VT2]TBAMT(K+I) = [M:VT2]TBAMT(OPTV+I)
+     [M:VT2]TBQTY(K+I) = [M:VT2]TBQTY(OPTV+I)
+     For AX=1 To GOPTCANA
+      Assign "[M:VT2]TBCCE"+num$(AX)+"("+num$(K+I)+")" With
+&      evalue("[M:VT2]TBCCE"+num$(AX)+"("+num$(OPTV+I)+")")
+     Next AX
+    Next I
+    K += OPTF-OPTV+1
+    [M:VT2]PTVENT = K
+    [M:BIC3]PTF(nolign-1) = K
+    Call ANUVENTIL([M:BIC3]PTV,[M:BIC3]PTF,[M:BIC3]NBLIG,OPTV,OPTF-OPTV+1) From VENTILE
+    K -= OPTF-OPTV+1
+   Endif
+  Endif
+  If dim([M:BIC3]DSP)>0
+   [M:BIC3]DSP(nolign-1) = "$"
+  Endif
+
+  For AX=1 To dim([F:SIA]CCE)
+   Call TST_CHAMP("SIA","CCE("+num$(AX-1)+")",OKCHAMP) From SUBIMPOBJ
+   If OKCHAMP
+    INDAX = find(GAXE(AX),[F:SIA]DIE(0..dim([F:SIA]DIE)-1))
+    If INDAX
+     mkstat = 0
+     For NLED=1 To GNBTYPLED
+      COMPTE = evalue("[M]ACC"+num$(NLED)+"("+num$(nolign-1)+")")
+      If COMPTE<>""
+       [L]TLED = GTYPLED(NLED) : Gosub LECLED From SUBBICS
+       Call CONTCCE([F:SIA]CCE(AX-1),[L]LED,GAXE(AX),[M]FCYLIN(nolign-1),[M]ACCDAT,COMPTE,GAXE,"[M:VT2]TBCCE#",K) From CPTCNT
+       If mkstat : Break : Endif
+      Endif
+     Next
+     If mkstat
+      Call ECR_TRACE(GMESSAGE-":"-mess(8,104,1)-COMPTE-mess(208,111,1)-[L]LED-mess(17,103,1)-[F:SIA]CCE(AX-1),1) From GESECRAN
+      Raz GMESSAGE
+      OK = 0 : Break
+     Endif
+     Assign "[M:VT2]TBCCE"+num$(AX)+"("+num$(K)+")" With [F:SIA]CCE(INDAX-1)
+    Endif
+   Endif
+  Next AX
+  If !OK : Return : Endif
+
+  Call TST_CHAMP("SIA","AMT",OKCHAMP) From SUBIMPOBJ
+  If OKCHAMP : [M:VT2]TBAMT(K) = [F:SIA]AMT : Endif
+  Call TST_CHAMP("SIA","QTY",OKCHAMP) From SUBIMPOBJ
+  If OKCHAMP : [M:VT2]TBQTY(K) = [F:SIA]QTY : Endif
+
+  [M:BIC3]QTY(nolign-1) = sum([M:VT2]TBQTY([M:BIC3]PTV(nolign-1)..[M:BIC3]PTF(nolign-1)))
+
+ When "DUD" : # Echéances
+
+
+ ## Recherche no de ligne
+ # Issue X3-195197 by MAPON
+ If GREP= "M" & [F:DUD]DUDLIG>=1 & [F:DUD]DUDLIG<=[M:DUD1]NBECH : # Modif ligne existante
+  nolign = [F:DUD]DUDLIG
+ # Issue X3-195197 end
+ Else                                                     : # Ajout d'une ligne
+  [M:DUD1]NBECH += 1
+  nolign = [M:DUD1]NBECH
+ Endif
+
+ # Import d'une ligne à 0 avec SIVNULL qui autorise la création de ligne nulle
+ # Il ne faut pas créer l'échéance
+ If [F:DUD]AMTCUR=0
+  Call LECTURE("FCY",[F:SIH]FCY,"") From CONTOBJ
+  If func AFNC.PARAM("SIVNULL",[F:FCY]FINRSPFCY)="1"
+   status=65
+  Endif
+ Endif
+
+  # Issue X3-205959 by MRDAB/MAPON
+  [M:DUD1]BPRPAY(nolign-1) = [F:DUD]BPRPAY
+  If [M:DUD1]BPRPAY(nolign-1) = ""
+    [M:DUD1]BPRPAY(nolign-1) = [F:SIH]BPR
+    [F:DUD]BPRPAY = [F:SIH]BPR
+  Endif
+
+  # Issue X3-195197 by MAPON
+  If [F:DUD]BIDNUMMAN <> ""
+    Read [F:BID]BID0 = 1;[M:DUD1]BPRPAY(nolign-1);[F:DUD]BIDNUMMAN;[F:DUD]BPAPAY
+    If fstat
+      Read [F:BID]BID0 = 1;[M:DUD1]BPRPAY(nolign-1);[F:DUD]BIDNUMMAN;""
+    Endif
+    If !fstat and [F:BID]BIDNUMFLG <> [V]CST_AYES
+      [M:DUD1]BIDCRY(nolign-1) = [F:BID]CRY
+      [M:DUD1]BIDNUM(nolign-1) = [F:DUD]BIDNUMMAN
+    Elsif fstat
+      GMESSAGE = mess(27,199,1)
+      Call TRACE(2,"<"+GCLE+">"-[F:DUD]BIDNUMMAN+":"-GMESSAGE) From SUBIMPOBJ
+      mkstat = 0 : Raz GMESSAGE : OK = 0
+    Endif
+    [M:DUD1]OBPRPAY = [F:SIH]BPR
+  Endif
+  # Issue X3-195197 end
+  # Issue X3-205959 end
+
+Endcase
+Return
+
+###############################################
+###############################################
+$IMP_INICRE
+
+# Issue X3-241301 - 2021-09-08 by JOPAU
+#If [V]G_SIH_STA=3
+#  [F:SIH]STA=[V]G_SIH_STA
+#Endif
+# End issue X3-241301
+Return
+
+###############################################
+## Création des échéances
+###############################################
+$CREATION
+
+  If [M:DUD1]NBECH=0 : # Pas d'échéances importées
+    Call CREECHE(1,2,2,[L]USRPAZ) From SUBBIH
+  Else
+    Gosub MODECHE
+  Endif
+
+Return
+
+
+###############################################
+## Modif des échéances
+###############################################
+$MODIF
+Gosub MODECHE
+Return
+
+
+$MODECHE
+Local Decimal TOTAL , RESIDU , RESTE
+Local Integer EXERCICE, PERIODE
+Local Integer ASTATUS
+Local Libelle TYPGEN,TYPANA
+## Rééquilibrage des échéances
+TOTAL = sum([M:DUD1]AMTCUR(0..[M:DUD1]NBECH-1))
+If TOTAL<[F:SIH]AMTATI : # Correction sur dernière échéance
+ [M:DUD1]AMTCUR([M:DUD1]NBECH-1) += [F:SIH]AMTATI-TOTAL
+Elsif TOTAL>[F:SIH]AMTATI
+ RESIDU = TOTAL-[F:SIH]AMTATI
+ For NOL=0 To [M:DUD1]NBECH-1
+  RESTE = [M:DUD1]AMTCUR(NOL)-[M:DUD1]PAYCUR(NOL)-[M:DUD1]TMPCUR(NOL)
+  If RESTE>0
+   If RESTE>RESIDU
+    [M:DUD1]AMTCUR(NOL) -= RESIDU : Break
+   Else
+    [M:DUD1]AMTCUR(NOL) -= RESTE
+    RESIDU -= RESTE
+   Endif
+  Endif
+ Next NOL
+Endif
+
+# Effacement
+CRITSUPPR="ACCNUM="+num$([F:SIH]ACCNUM)
+Call HISTOSUPPR (CRITSUPPR) From MODECHE
+Delete [F:DUD] Where [F:DUD]ACCNUM=[F:SIH]ACCNUM
+If fstat=1
+ GOK = -1 : GLOCK="$GACCDUDATE"-num$([F:DUD]ACCNUM) : Return
+Endif
+# Recalcul des montants société et reporting
+Call LECTURE("FCY",[F:SIH]FCY,"") From CONTOBJ
+Call LECTURE("CPY",[F:FCY]LEGCPY,"") From CONTOBJ
+If [M:DUD1]NBECH>0
+ Call CONVERT_TAB([F:SIH]CUR,[F:CPY]ACCCUR,[F:CPY]ACCCUR
+&  ,[F:SIH]CURTYP,[F:SIH]ACCDAT,[M:DUD1]AMTCUR(0..[M:DUD1]NBECH-1)
+&  ,[M:DUD1]AMTLOC,GBIDI1) From TRTDEV
+Endif
+
+# Création des nouvelles échéances
+
+# Issue X3-133919
+Local Integer ACTIV_XX5A
+[L]ACTIV_XX5A = func AFNC.ACTIV("XX5A")
+For nolign=1 To [M:DUD1]NBECH
+ If [M:DUD1]AMTTOT=0 |  [M:DUD1]AMTCUR(nolign-1)<>0
+   Raz [F:DUD]
+   [F:DUD]BPRTYP = 1
+   [F:DUD] = [F:SIH]
+   If [L]ACTIV_XX5A = 0 : Raz [F:DUD]BELVCS : Endif  # Issue X3-133919
+   [F:DUD]SAC = [F:SIH]BPRSAC
+   Case [F:SIH]INVTYP
+    When 1,3
+     [F:DUD]SNS = +1
+    When 2,4
+     [F:DUD]SNS = -1
+   Endcase
+   [F:DUD]TYP    = [F:SIH]GTE
+   [F:DUD]FLGPAZ = len(mess(0,510,1))
+   [F:DUD]       = [M:DUD1]
+   [F:DUD]LIG    = 1
+   [F:DUD]PAMTYP = 1 : # Type échéance
+   [F:DUD]BIDNUMMAN = [M:DUD1]BIDNUM(nolign-1)     # Issue X3-195197 by MAPON
+   If [F:SIH]STA = 3
+    [F:DUD]DUDSTA = 2
+   Else
+    [F:DUD]DUDSTA = 1
+   Endif
+   [F:DUD]DUDLIG = nolign
+   # Point d'entrée mise à jour des échéances
+   Gosub IMPECHE From SUBBIH
+   [F:DUD]TYPDUD = 2  : #Facture
+   Call KEYDUD("DUD") From MODECHE
+   Call SLDECH("DUD")From MODECHE
+   Call SETMAINREF([F:DUD]CPY,TYPGEN,TYPANA) From CPTDIV
+   [L]ASTATUS = func FINPER_SYRA.GET_PER(GACTX, [F:DUD]CPY, TYPGEN, [F:DUD]DUDDAT, EXERCICE, PERIODE, GMESSAGE)
+   [F:DUD]FIY = EXERCICE
+   [F:DUD]PER = PERIODE
+   If dim([F:DUD]CREDAT)>0 : [F:DUD]CREDAT = datesyst : Endif
+   If dim([F:DUD]CREUSR)>0 : [F:DUD]CREUSR = GUSER : Endif
+   Write [DUD]
+   If fstat
+    GOK=0 : Call FSTA("DUD") From GLOCK : Break
+   Endif
+   Call HISTOECH("DUD",1,[F:SIH]ACCDAT)From MODECHE
+ Endif
+Next nolign
+Return
+
+
+#############################################################
+## Cas particuliers
+#############################################################
+## On force la répartition, car les sections sont sur les lignes ana
+##
+$IMP_ZONE
+Case IMPZON
+ When "CPY"
+  ## Initialisations globales plans/axes
+  GSOCIETE = [M:BIC0]CPY
+  Call INI_GLOBAL(1,[M:BIC0]CPY,STAT,MESSA) From SUBBICS
+ When "DSP"
+  If dim([M]DSP)>0 & [M]DSP(nolign-1)="" : [M]DSP(nolign-1) = "$" : Endif
+ When "CUR"
+  #-- Initialisation du masque commun SAICURLED (sans les cours enregistrés)
+  # Issue X3-75263
+  If [F:SIH]CURTYP = 0
+    If dim([F:BPC]CHGTYP)>0
+      [F:SIH]CURTYP = [F:BPC]CHGTYP
+    Else
+      [F:SIH]CURTYP = 1
+    Endif
+  Endif
+  # End issue X3-75263
+  # Issue X3-183545 - 2020-03-13 by VAVIL/ANKUL * the case [F:SIH]RATDAT=[0/0/0]
+  If [F:SIH]RATDAT=[0/0/0] : [F:SIH]RATDAT = [F:SIH]ACCDAT : [M]RATDAT = [F:SIH]RATDAT: Endif
+  # End issue X3-183545
+  Call CHARG_ZONES_DEV("BIC1",[F:SIH]CPY,[F:SIH]CUR,[F:SIH]RATDAT,[F:SIH]CURTYP,0) From SUBBICS
+  Call INIT_COURS("BIC1") From SUBBICS
+  Call IMP_CUR_RAT_APAR_INVOICES("BIC1") From SUBBICS #X3-66221
+ When "BPAPAY"
+  If [F:DUD]BPAPAY = "" & [M]BPAPAY = ""
+   Call LECTURE("BPR",[M:BIC1]BPRPAY,"") From CONTOBJ
+   [M]BPAPAY = [F:BPR]BPAADD
+  Endif
+
+Endcase
+Return
+
+$VERIF_CRE
+For I=0 To [M]NBLIG-1
+ If dim([M]DSP)>0 & [M]DSP(I)="$"
+  If  [M]AMTNOTLIN(I)<>sum([M:VT2]TBAMT([M]PTV(I)..[M]PTF(I)))
+&  or [M]QTY(I)<>sum([M:VT2]TBQTY([M]PTV(I)..[M]PTF(I)))
+   Call ECR_TRACE(mess(28,106,1)-mess(61,100,1)-num$(I+1),1) From GESECRAN
+# Répartition déséquilibrée - ligne no ...
+   OK = 0 : Break
+  Endif
+ Endif
+Next I
+Return

@@ -1,0 +1,38 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+
+
+#If !clalev([F:ZNUM]) Then : Local File ZNUMER  [F:ZNUM] : Endif
+#
+#For I = 0 To 5000
+#Trbegin [F:ZNUM]
+#[F:ZNUM]NUMERO = I
+#Write [F:ZNUM]
+#If !fstat Then
+#Commit
+#Else
+#Rollback
+#Endif
+#Next
+
+
+#Local Char NUM
+#NUM = '17648'
+###100 salinox 1000 nada
+#
+#Call ZDELREASON(NUM)
+#End
+
+
+Subprog ZDELREASON(VALEUR)
+Variable Char VALEUR()
+Local Char VALBOUT(250), PARBOUT(250)(1..20)
+PARBOUT(1)="1"
+PARBOUT(2)="3"
+PARBOUT(3)="COB220002-000157"
+
+FLGEXE=1
+GACTION="PAYCPT"
+
+Call TRAITE_CHAR(VALBOUT,PARBOUT,"","","SUBPAY",4,"SPEPAY") From GTRAITE
+
+End

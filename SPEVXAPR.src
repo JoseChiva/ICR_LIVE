@@ -1,0 +1,152 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+############################################################################
+# Script name : SPEVXAPR
+# Description : Recepcion terminales moviles
+# Module      : Compra
+# Version     : 1
+# Created by  : Miguel Llaja
+# Company     : Auren España
+# Created date: 22/06/2022
+############################################################################
+
+######################################################################################
+######################################################################################
+$ACTION
+
+Case ACTION
+  When "SEL_TABLE": If TABLE= "SELPOQITM"  : Gosub SEL_SELPOQITM Endif
+Endcase
+Return
+######################################################################################
+## Etiqueta añadida por el supervisor (pantalla VXAPR0) 22/06/2022 07:33:50 (ADMIN)
+######################################################################################
+Subprog AM_ZBPSNDE(VALEUR)
+Variable Char    VALEUR()
+Raz GZBPSNDE
+GZBPSNDE=VALEUR
+End
+
+
+######################################################################################
+######################################################################################
+## Etiqueta añadida por el supervisor (pantalla VXAPR1) 22/06/2022 21:29:43 (ADMIN)
+######################################################################################
+Subprog S_ITMREF(VALEUR)
+Variable Char    VALEUR()
+#-----
+Local Integer OK
+If [M:APR0]POHNUM="" & GPTHDIR=2
+  Call OUINON(mess(37,7750,1),OK) From GESECRAN
+Else
+  OK=2
+Endif
+#-----
+Local Char PARMSK(250)(1..20), SAVACT(20)
+If OK=2
+  SAVACT=GACTION : GACTION="SELPOQITM"
+  PARMSK(1)=[M:APR1]PRHFCY
+  PARMSK(2)=[M:APR0]BPSNUM
+  PARMSK(3)=[M:APR0]POHNUM
+  PARMSK(4)=num$([M:APR1]POPLIN)
+  PARMSK(5)=num$([M:APR1]POQSEQ)
+  Call S_TAB_CHAR(VALEUR,PARMSK,"SELPOQITM","SPEVXAPR","") From GACTION
+  [M:APR1]PRHFCY=PARMSK(1)
+  [M:APR0]BPSNUM=PARMSK(2)
+  [M:APR0]POHNUM=PARMSK(3)
+  [M:APR1]POPLIN=val(PARMSK(4))
+  [M:APR1]POQSEQ=val(PARMSK(5))
+#                                                          # hcb 71276 deb
+  If dim([M:APR1]ECCVALMAJORI)>0
+     [M:APR1]ECCVALMAJORI  = [F:POQ]ECCVALMAJ   # version majeure origine
+     [M:APR1]ECCVALMINORI  = [F:POQ]ECCVALMIN   # version mineure origine
+  Endif
+#                                                          # hcb 71276 fin
+
+  GACTION=SAVACT
+Else
+  SAVACT=GACTION : GACTION="SELITF"
+  PARMSK(1)=[M:APR1]PRHFCY
+  # Issue 102135 - 2014-08-19 by SR : Retour sur fiche 95491
+  # Issue 95491 - 2014-01-31 by SR : Pas sous-traitance
+  PARMSK(2)="134589"
+  PARMSK(3)=""
+  PARMSK(4)="1234"
+  PARMSK(5)=""
+  PARMSK(6)=""
+  PARMSK(7)="[F:ITM]RCPFLG=2"
+  Call S_TAB_CHAR(VALEUR,PARMSK,"SELITF","STKSEL","") From GACTION
+  GACTION=SAVACT
+Endif
+#-----
+End
+
+
+######################################################################################
+
+$SEL_SELPOQITM
+Local Char    WPRHFCY(GLONFCY) : WPRHFCY=PARAM(1)
+Local Char    WBPSNUM(GLONBPS) : WBPSNUM=PARAM(2)
+Local Char    WPOHNUM(GLONPOH) : WPOHNUM=PARAM(3)
+Local Integer WPOPLIN
+Local Integer WPOQSEQ
+Local Char    CODFIC(GLONATB)  : CODFIC="PORDERQ"
+Local Char    WCRITERE(240)
+Raz CRITERE,ICRITERE
+#-----
+If !clalev([F:ATZ])  Local File ATABZON   [ATZ]  : Endif
+If !clalev([F:POQ2]) Local File PORDERQ   [POQ2] : Endif
+If !clalev([F:ZITP]) Local File ITMBPS   [ZITP] : Endif
+Link [POQ2] With [ITM] ITM0=[POQ2]ITMREF, [ZITP]ITP0 = [POQ2]ITMREF;[POQ2]BPSNUM As [POQX]
+Default File [POQX]
+#-----
+If WPOHNUM<>""
+  WCRITERE="[F:POQ2]POHNUM=WPOHNUM"
+Endif
+Call ADDCRIT(CRITERE, ICRITERE, "CRITERE", WCRITERE, "&") From GOBJSUB
+If WPRHFCY<>""
+    WCRITERE="[F:POQ2]PRHFCY=WPRHFCY"
+    Call ADDCRIT(CRITERE, ICRITERE, "CRITERE", WCRITERE, "&") From GOBJSUB
+Endif
+If WBPSNUM<>""
+  WCRITERE="[F:POQ2]BPSNUM=WBPSNUM"
+  Call ADDCRIT(CRITERE, ICRITERE, "CRITERE", WCRITERE, "&") From GOBJSUB
+Endif
+If VALEUR<>""
+  WCRITERE="pat([F:POQ2]ITMREF,VALEUR+'*')"
+  Call ADDCRIT(CRITERE, ICRITERE, "CRITERE", WCRITERE, "&") From GOBJSUB
+Endif
+# Issue 112754 - 2016-11-29 by SR : Services
+#CRITERE(1)-="& [F:POQ2]ORI<>2 & [F:POQ2]WIPSTA<2 & [F:POQ2]LINCLEFLG<>2"
+#CRITERE(2) ="& [F:ITM]ITMSTA=1 & [F:ITM]SCSFLG <> 2 & [F:ITM]PHAFLG <> 2 & [F:ITM]RCPFLG=2"
+WCRITERE="[F:POQ2]ORI<>2 & [F:POQ2]WIPSTA<2 & [F:POQ2]LINCLEFLG<>2 & [F:POQ2]ITMKND<>2"
+Call ADDCRIT(CRITERE, ICRITERE, "CRITERE", WCRITERE, "&") From GOBJSUB
+WCRITERE="[F:ITM]ITMSTA=1 & [F:ITM]PHAFLG <> 2 & [F:ITM]RCPFLG=2"
+Call ADDCRIT(CRITERE, ICRITERE, "CRITERE", WCRITERE, "&") From GOBJSUB
+# End issue 112754
+# Issue 95491 - 2014-01-31 by SR : Pas de sous-traitance
+If GFONCTION = "VXAPR"
+  WCRITERE="[F:POQ2]LINTYP=1"
+  Call ADDCRIT(CRITERE, ICRITERE, "CRITERE", WCRITERE, "&") From GOBJSUB
+Endif
+# End issue 95491
+#-----
+START="ITMREF"
+TIT(0) =mess(351,198,1)
+NBCOL =0
+NBCOL += 1 : COL(NBCOL)="ITMREF"    : Gosub TEXTE
+NBCOL += 1 : COL(NBCOL)="[F:ITM]ITMDES1"    : TIT(NBCOL) = "Desc."
+NBCOL += 1 : COL(NBCOL)="[F:ZITP]ITMREFBPS"    : TIT(NBCOL) = "Art. proveedor."
+NBCOL += 1 : COL(NBCOL)="[F:ZITP]ITMDESBPS"    : TIT(NBCOL) = "Desc."
+NBCOL += 1 : COL(NBCOL)="POHNUM"    : Gosub TEXTE
+NBCOL += 1 : COL(NBCOL)="POPLIN"    : Gosub TEXTE
+NBCOL += 1 : COL(NBCOL)="POQSEQ"    : Gosub TEXTE
+NBCOL += 1 : COL(NBCOL)="QTYPUU"    : Gosub TEXTE
+NBCOL += 1 : COL(NBCOL)="RCPQTYPUU" : Gosub TEXTE
+NBCOL += 1 : COL(NBCOL)="PUU"       : Gosub TEXTE
+
+Return
+
+#########################################################################
+$TEXTE
+Call TEXTFIC(CODFIC, COL(NBCOL), 1, TIT(NBCOL)) From OBJDIV
+Return

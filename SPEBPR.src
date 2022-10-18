@@ -1,0 +1,19 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# Gestión de la máscara BPRBPC (Especifico)
+
+######################################################################################
+## Etiqueta añadida por el supervisor (pantalla BPRBPC) 06/06/2022 13:32:04 (ADMIN)
+######################################################################################
+$ACTION
+Case ACTION
+ When default
+Endcase
+Return
+
+Subprog C_CRN(VALEUR)
+Variable Char    VALEUR()
+End
+
+
+######################################################################################
+

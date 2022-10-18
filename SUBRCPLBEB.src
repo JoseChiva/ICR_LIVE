@@ -1,0 +1,582 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+########################################################################
+#                                       Sous programmes Etiquettes stock
+# RELOADSTO   : Remplissage du tableau ecran RCB1
+# PRINTSTO    : Impression etiquette stock
+# ECRLBPSTO   : ecriture enregistrement LABELPRN
+#                                   Sous programmes Etiquettes Contenant
+# RELOADLPN   : Remplissage du tableau ecran RCB2
+# PRINTLPN    : Impression etiquette contenant
+# ECRLBPLPN   : ecriture enregistrement LABELPRN
+###############################################################################
+# RELOADSTO   : Remplissage du tableau ecran RCB1
+###############################################################################
+
+###################################################################################################
+#001 - AMG 17/06/2022- AUREN - SPE-018-03 - Desarrollo etiquetas modificamos cuando se imprime cada
+#      etiqueda desde Stocks > Etiqueta
+###################################################################################################
+
+Subprog RELOADSTO
+Local Char ETAT, ETAT2
+Local Integer LSTJFLG # Indique si le filtre est fait sur STOJOU ou sur le Link
+Local Char    LCRIT(250)(5)
+Local Integer LNBCRIT
+Local Char    LMABR
+Local Integer LNBLIG
+Local Integer I,J
+Local Char    LETAT, LPRN
+nolign = 0
+Effzo [M:RCB1]
+If [M:RCB0]ABRDOC=""
+    Raz LMABR
+    LNBLIG = 0
+Else
+    LMABR = "[M:"+[M:RCB0]ABRDOC+"]"
+    LNBLIG = evalue(LMABR+[M:RCB0]WZONNBLIG)-1
+Endif
+Local Char FILSUP(250)
+FILSUP= "1=1"
+GPOINT="BEFFILRCB1"
+Gosub  ENTREE From EXEFNC
+For I=0 To LNBLIG
+    If LMABR<>""
+        If !evalue([M:RCB0]WMSKFIL)
+            Goto NEXTI
+        Endif
+        [M:RCB0]VCRTYP    = evalue(LMABR+[M:RCB0]WZONVCRTYP)
+        [M:RCB0]VCRNUMSTR = evalue(LMABR+[M:RCB0]WZONVCRNUM)
+        [M:RCB0]VCRNUMEND = [M:RCB0]VCRNUMSTR
+        [M:RCB0]FILVCRLIN = evalue(LMABR+[M:RCB0]WZONVCRLIN)
+    Endif
+    Case [M:RCB0]VCRTYP
+        When 6,9,12,13,15,16,19,18,26,28,29,32,31,35:
+            Raz LNBCRIT
+            If [M:RCB0]VCRTYP =26
+                LCRIT(LNBCRIT) = "STOFCY=[M:RCB0]STOFCY&VCRTYP=12&UPDCOD=2&REGFLG=1&QTYSTU>0"
+            Elsif [M:RCB0]VCRTYP = 12
+                LCRIT(LNBCRIT) = "STOFCY=[M:RCB0]STOFCY&VCRTYP=[M:RCB0]VCRTYP&UPDCOD=2&REGFLG=1&QTYSTU>0&TRSTYP=19"
+            Else
+                LCRIT(LNBCRIT) = "STOFCY=[M:RCB0]STOFCY&VCRTYP=[M:RCB0]VCRTYP&UPDCOD=2&REGFLG=1&QTYSTU>0"
+            Endif
+            LNBCRIT += 1
+            If [M:RCB0]VCRTYP=29
+                LCRIT(LNBCRIT) = " & QTYSTU>0 "
+                LNBCRIT += 1
+            Endif
+            If [M:RCB0]VCRNUMSTR <> ""
+               LCRIT(LNBCRIT)  = "&VCRNUM>=[M:RCB0]VCRNUMSTR"
+               LCRIT(LNBCRIT) += "&VCRNUM<=[M:RCB0]VCRNUMEND"
+               LNBCRIT += 1
+            Endif
+            If [M:RCB0]FILVCRLIN > 0
+               LCRIT(LNBCRIT) = "&VCRLIN=[M:RCB0]FILVCRLIN"
+               LNBCRIT += 1
+            Endif
+
+           If [M:RCB0]ABRDOC="SSL1"
+              Link [STJ] With [STC]STC0=STOFCY;LOC
+&                  As [LNK]
+&                  Where evalue(LCRIT) & [STC]LOCCAT=1 & evalue(FILSUP)
+&             Order By Key STJ1
+              Raz LSTJFLG
+           Else
+              If clalev([LNK])
+                 Close Local File [LNK]
+              Endif
+              Local File STOJOU [LNK]
+              Filter [F:LNK] Where evalue(LCRIT) & evalue(FILSUP)
+&             Order By Key STJ1
+              LSTJFLG=1
+           Endif
+           For [LNK]
+                If LSTJFLG
+                    Read [STJ]STJ0=[F:LNK]STOFCY;[F:LNK]UPDCOD;[F:LNK]ITMREF;[F:LNK]IPTDAT;[F:LNK]MVTSEQ;[F:LNK]MVTIND
+                Endif
+                If [F:ITM]ITMREF <> [F:STJ]ITMREF
+                    Read [F:ITM]ITM0 = [F:STJ]ITMREF
+                    If fstat : Raz [F:ITM] : Endif
+                Endif
+                If nolign = dim([M:RCB1]LBENBR1) : Break : Endif
+                #--- Traitement particulier si impression VT
+                If GVTMOD=1
+                   Raz LETAT, LPRN
+                   # Récupération format étiquette et destination
+                   Call ALIM_PRNETI([F:STJ]ITMREF,[F:STJ]PCU,LETAT,LPRN) From STKADC
+                   # Contrôle de la destination
+                   If LPRN<>"" & LETAT<>""
+                      Call AIMCONT(LPRN,LETAT,GBATCH) From IMPRIME
+                      If mkstat : Raz LPRN, mkstat : Endif
+                   Endif
+                   # Format étiquette et destination trouvés --> impression
+                   # sinon pas d'impression car en VT, on ne peut pas les saisir
+                   If LETAT<>"" & LPRN<>""
+                      nolign += 1
+                      [M:RCB1]                      = [F:STJ]
+                      [M:RCB1]LBENBR1    (nolign-1) = [F:STJ]LBENBR
+                      [M:RCB1]TRT1       (nolign-1) = 1+!([F:STJ]PRNFLG=2)
+                      [M:RCB1]LBEFMT1    (nolign-1) = LETAT
+                      [M:RCB1]PRT1       (nolign-1) = LPRN
+                      [M:RCB1]SERIMP1    (nolign-1) = [F:AIM]PRTSRV
+                      [M:RCB1]DEFIMP1    (nolign-1) = [F:AIM]PRTNAM
+                      If [M:RCB1]LBENBR1 (nolign-1) = 0
+                         If int([M:RCB1]QTYPCU(nolign-1))=[M:RCB1]QTYPCU     (nolign-1)
+                            [M:RCB1]LBENBR1   (nolign-1) =[M:RCB1]QTYPCU     (nolign-1)
+                         Else
+                            [M:RCB1]LBENBR1   (nolign-1) = int([M:RCB1]QTYPCU(nolign-1))+1
+                         Endif
+                      Endif
+                      If [M:RCB0]VCRTYP = 26
+                         [M:RCB1]LBENBR1 (nolign-1) = 1
+                      Endif
+                      GPOINT="ALISCRRCB1"
+                      Gosub  ENTREE From EXEFNC
+                   Else
+                      If LPRN=""
+                         GMESSAGE=mess(501,9137,1)   # destination de l impression absente ou erronée
+                      Else
+                         GMESSAGE=mess(100,187,1)    # document non renseigné sur la transaction
+                      Endif
+                      #--- Issue X3-227166 by TS pour générer un warning si GAXTREEM
+                      #Call ERREUR(GMESSAGE) From GESECRAN
+                      If GWEBSERV & GAXTREEM
+                        Call MESSAGE(GMESSAGE) From GESECRAN
+                      Else
+                        Call ERREUR(GMESSAGE) From GESECRAN
+                      Endif
+                      Raz GMESSAGE
+                      #---
+                   #---
+                   Endif
+                Else
+                #---
+                   nolign  += 1
+                   [M:RCB1]                           = [F:STJ]
+                   [M:RCB1]LBENBR1         (nolign-1) = [F:STJ]LBENBR
+                   [M:RCB1]TRT1            (nolign-1) = 1+!([F:STJ]PRNFLG=2)
+                   If [M:RCB1]LBENBR1      (nolign-1) = 0
+                      If int([M:RCB1]QTYPCU(nolign-1))= [M:RCB1]QTYPCU    (nolign-1)
+                         [M:RCB1]LBENBR1   (nolign-1) = [M:RCB1]QTYPCU    (nolign-1)
+                      Else
+                         [M:RCB1]LBENBR1   (nolign-1) = int([M:RCB1]QTYPCU(nolign-1))+1
+                      Endif
+                   Endif
+                   If [M:RCB0]VCRTYP = 26
+                      [M:RCB0]LBENBR1      (nolign-1) = 1
+                   Endif
+                   If [M:RCB1]LBEFMT1      (nolign-1) = ""
+                      J = find([F:STJ]PCU,[F:ITM]PCU(0..(dim([F:ITM]PCU)-1)))
+                      If J
+                         [M:RCB1]LBEFMT1   (nolign-1) = [F:ITM]LBEFMT(J-1)
+                      Else
+                         If [F:STJ]STU = [F:ITM]STU
+                            [M:RCB1]LBEFMT1(nolign-1) = [F:ITM]STULBEFMT
+                         Endif
+                      Endif
+                   Endif
+                   If [M:RCB1]LBEFMT1      (nolign-1) <> ""
+                      Call AM_LBEFMT1([M:RCB1]LBEFMT1(nolign-1)) From SUBRCPLBE
+                   Endif
+                   GPOINT="ALISCRRCB1"
+                   Gosub  ENTREE From EXEFNC
+                Endif
+            Next
+            Filter [F:LNK]
+        When 10:
+            Raz LNBCRIT
+            LCRIT(LNBCRIT) = "MFGFCY=[M:RCB0]STOFCY"
+            LNBCRIT += 1
+            If [M:RCB0]VCRNUMSTR <> ""
+                LCRIT(LNBCRIT)  = "&MFGNUM>=[M:RCB0]VCRNUMSTR"
+                LCRIT(LNBCRIT) += "&MFGNUM<=[M:RCB0]VCRNUMEND"
+                LNBCRIT += 1
+            Endif
+            Link [MFI] With [ITM]ITM0=ITMREF As [LNK] Where evalue(LCRIT) & evalue(FILSUP)
+            For [LNK]
+                If nolign = dim([M:RCB1]LBENBR1) : Break : Endif
+
+                #--- Traitement particulier si impression VT
+                If GVTMOD=1
+                   Raz LETAT, LPRN
+                   # Récupération format étiquette et destination
+                   Call ALIM_PRNETI([F:STJ]ITMREF,[F:STJ]PCU,LETAT,LPRN) From STKADC
+                   # Contrôle de la destination
+                   If LPRN<>"" & LETAT<>""
+                      Call AIMCONT(LPRN,LETAT,GBATCH) From IMPRIME
+                      If mkstat : Raz LPRN, mkstat : Endif
+                   Endif
+                   # Format étiquette et destination trouvés --> impression
+                   # sinon pas d'impression car en VT, on ne peut pas les saisir
+                   If LETAT<>"" & LPRN<>""
+                      nolign += 1
+                      [M:RCB1] = [F:STJ]
+                      [M:RCB1]LBENBR1         (nolign-1) = [F:STJ]LBENBR
+                      [M:RCB1]TRT1            (nolign-1) = 1+!([F:STJ]PRNFLG=2)
+                      [M:RCB1]LBEFMT1         (nolign-1) = LETAT
+                      [M:RCB1]PRT1            (nolign-1) = LPRN
+                      [M:RCB1]SERIMP1         (nolign-1) = [F:AIM]PRTSRV
+                      [M:RCB1]DEFIMP1         (nolign-1) = [F:AIM]PRTNAM
+                      If [M:RCB1]LBENBR1      (nolign-1) = 0
+                         If int([M:RCB1]QTYPCU(nolign-1))= [M:RCB1]QTYPCU    (nolign-1)
+                            [M:RCB1]LBENBR1   (nolign-1) = [M:RCB1]QTYPCU    (nolign-1)
+                         Else
+                            [M:RCB1]LBENBR1   (nolign-1) = int([M:RCB1]QTYPCU(nolign-1))+1
+                        Endif
+                      Endif
+                      If [M:RCB0]VCRTYP = 26 : [M:RCB1]LBENBR1(nolign-1) = 1 : Endif
+                      GPOINT="ALISCRRCB1"
+                      Gosub  ENTREE From EXEFNC
+                   Else
+                      If LPRN=""
+                         GMESSAGE=mess(501,9137,1)
+                      Else
+                         GMESSAGE=mess(100,187,1)
+                      Endif
+                      #--- Issue X3-227166 by TS pour générer un warning si GAXTREEM
+                      #Call ERREUR(GMESSAGE) From GESECRAN
+                      If GWEBSERV & GAXTREEM
+                        Call MESSAGE(GMESSAGE) From GESECRAN
+                      Else
+                        Call ERREUR(GMESSAGE) From GESECRAN
+                      Endif
+                      Raz GMESSAGE
+                      #---
+                   Endif
+                Else
+                   nolign  += 1
+                   [M:RCB1] = [F:MFI]
+                   [M:RCB1]VCRNUM          (nolign-1) = [F:MFI]MFGNUM                   ####################
+                   [M:RCB1]QTYSTU          (nolign-1) = [F:MFI]EXTQTY
+                   [M:RCB1]QTYPCU          (nolign-1) = [F:MFI]UOMEXTQTY
+                   [M:RCB1]PCU             (nolign-1) = [F:MFI]UOM
+                   [M:RCB1]VCRLIN          (nolign-1) = [F:MFI]MFGLIN
+                   [M:RCB1]TRSTYP          (nolign-1) = 5
+                   If [M:RCB1]LBENBR1      (nolign-1) = 0
+                      If int([M:RCB1]QTYPCU(nolign-1))= [M:RCB1]QTYPCU    (nolign-1)
+                         [M:RCB1]LBENBR1   (nolign-1) = [M:RCB1]QTYPCU    (nolign-1)
+                      Else
+                         [M:RCB1]LBENBR1   (nolign-1) = int([M:RCB1]QTYPCU(nolign-1))+1
+                      Endif
+                   Endif
+                   If [M:RCB1]LBEFMT1      (nolign-1) = ""
+                      J = find([F:MFI]UOM,[F:ITM]PCU(0..(dim([F:ITM]PCU)-1)))
+                      If J
+                         [M:RCB1]LBEFMT1   (nolign-1) = [F:ITM]LBEFMT(J-1)
+                      Else
+                         If [F:MFI]UOM = [F:ITM]STU
+                            [M:RCB1]LBEFMT1 (nolign-1) = [F:ITM]STULBEFMT
+                         Endif
+                      Endif
+                   Endif
+                   If [M:RCB1]LBEFMT1       (nolign-1) <> ""
+                      Call AM_LBEFMT1([M:RCB1]LBEFMT1(nolign-1)) From SUBRCBLBE
+                   Endif
+                   GPOINT="ALISCRRCB1"
+                   Gosub  ENTREE From EXEFNC
+                Endif
+            Next
+            Filter [LNK]
+    Endcase
+    [M:RCB1]NBLIG1 = nolign
+    $NEXTI
+Next
+Affzo [M:RCB1]
+End
+
+###############################################################################
+# PRINTSTO    : Impression etiquette
+###############################################################################
+Subprog PRINTSTO(PRET)
+Variable Integer PRET
+Raz PRET
+Local Integer I : Raz I
+
+#001-AUREN >
+Local Integer Z
+Local Char ZNUMINI (250)
+Z=0
+ZNUMINI=''
+#001<
+
+   #-- Recherche sur le tableau de la première ligne qui ne convient pas
+   #-- Si on trouve une ligne et que I=0 on sort du sigma
+    I = sigma(0,[M:RCB1]NBLIG1-1, (indcum+1)*(([M:RCB1]TRT1(indcum)=2)
+&          & (([M:RCB1]LBEFMT1(indcum)="") | ([M:RCB1]PRT1(indcum)=""&[M:RCB1]DEFIMP1(indcum)=""))
+&          & I=0 & sigma(I=1,1,1)))
+    If I>0
+        #--- Issue X3-227166 by TS pour générer un warning si GAXTREEM
+        #Call ERREUR(mess(48,184,1)-num$(I)-"("+mess(222,200,1)+","+mess(41,197,1)+","+mess(16,135,1)+")") From GESECRAN
+        If GWEBSERV & GAXTREEM
+          Call MESSAGE(mess(48,184,1)-num$(I)-"("+mess(222,200,1)+","+mess(41,197,1)+","+mess(16,135,1)+")") From GESECRAN
+        Else
+          Call ERREUR(mess(48,184,1)-num$(I)-"("+mess(222,200,1)+","+mess(41,197,1)+","+mess(16,135,1)+")") From GESECRAN
+        Endif
+        #---
+        PRET = 1
+        End
+    Endif
+
+# Tri du tableau selon imprimante,format
+Sorta [M:RCB1]NBLIG1 [M:RCB1]NBLIG1
+&     Order By [M:RCB1]DEFIMP1(indice),[M:RCB1]LBEFMT1(indice),[M:RCB1]VCRNUM(indice),
+&              [M:RCB1]VCRLIN(indice),[M:RCB1]MVTSEQ(indice)*-1,[M:RCB1]MVTIND(indice)
+
+GPOINT="SORTARCB1"
+Gosub  ENTREE From EXEFNC
+
+#--- Issue X3-220344 by TS
+Call ECR_TRACE(mess(577,184,1),0) From GESECRAN
+
+Local Char TBPAR(10)(1..50),TBVAL(30)(1..50)
+For I = 0 To [M:RCB1]NBLIG1-1
+    Raz TBPAR, TBVAL
+    If [M:RCB1]TRT1(I)=2 & [M:RCB1]LBENBR1(I)<>0 & [M:RCB1]LBEFMT1(I)<>"" & [M:RCB1]PRT1(I)<>""
+        GWNUMREQ = uniqid([LBP])
+
+        #001- AUREN>
+        If Z=0 Then
+           Z=1
+           ZNUMINI=num$(GWNUMREQ)
+        Endif
+        #001<
+
+        Gosub ECRLBPSTO
+        If GOK = 1
+            Raz GBIDI1    # Sinon ça plante quand on vient d'un document !!!!
+            #001-AUREN>
+#            Call ETAT([M:RCB1]LBEFMT1(I),[M:RCB1]PRT1(I),GLANGUE,0,"",TBPAR,TBVAL) From AIMP3
+            #001<
+        Else
+            GOK = 1
+        Endif
+    Endif
+Next I
+
+##001-AUREN>
+If GOK=1 Then
+  Local Char SQLSENT(250)(1..5)
+    SQLSENT(1) = "SELECT RPTCOD_0, ZCOD_0  "
+    SQLSENT(2) = "FROM "+nomap+".LABELPRN "
+    SQLSENT(3) = "WHERE NUMREQ_0 >= '" + num$(ZNUMINI) + "' AND NUMREQ_0 <= '" + num$(GWNUMREQ) + "'"
+    SQLSENT(4) = "GROUP BY RPTCOD_0, ZCOD_0 "
+    For (Char RPTCOD_0, Char ZCOD_0) From "5" Sql SQLSENT(1..4) As [Y00]
+      TBPAR(2)  = "etat"                : TBVAL(2)  = RPTCOD_0
+      TBPAR(5)  = "znumdeb"             : TBVAL(5)  = num$(ZNUMINI)
+      TBPAR(6)  = "znumfin"             : TBVAL(6)  = num$(GWNUMREQ)
+      Call ETAT(RPTCOD_0,ZCOD_0,GLANGUE,0,"",TBPAR,TBVAL) From AIMP3
+    Next
+Endif
+##001<
+
+
+End
+###############################################################################
+# ECRLBPSTO  : ecriture enregistrement LABELPRN
+###############################################################################
+$ECRLBPSTO
+Local Integer J
+#On arrive ici pour chaque ligne du tableau
+Call DEBTRANS From GLOCK
+Trbegin [LBP],[STJ]
+
+# sauf si etiquettes de production
+If [M:RCB0]VCRTYP <> 10
+    Read [STJ]STJ0=[M:RCB0]STOFCY;[M:RCB1]UPDCOD(I);[M:RCB1]ITMREF(I);[M:RCB1]IPTDAT(I);[M:RCB1]MVTSEQ(I);[M:RCB1]MVTIND(I)
+    [F:STJ]PRNFLG = 2
+    Rewrite [STJ]
+Endif
+Raz [F:LBP]
+[F:LBP]USR    = GUSER
+[F:LBP]NUMREQ = GWNUMREQ
+
+#--- Issue X3-164952 by TS
+GPOINT="MAJ_LBP" : Gosub ENTREE From EXEFNC
+
+Case [M:RCB0]VCRTYP
+     When 6,9,12,13,15,16,19,18,26,28,29,32,31,35:
+        [F:LBP]RPTCOD     = [M:RCB1]LBEFMT1  (I)
+        [F:LBP]STOFCY     = [M:RCB0]STOFCY
+        [F:LBP]UPDCOD     = [M:RCB1]UPDCOD   (I)
+        [F:LBP]ITMREF     = [M:RCB1]ITMREF   (I)
+        #001-AUREN>
+        [F:LBP]ZCOD       = [M:RCB1]PRT1(I)
+        #001<
+        [F:LBP]IPTDAT     = [M:RCB1]IPTDAT   (I)
+        [F:LBP]MVTSEQ     = [M:RCB1]MVTSEQ   (I)
+        [F:LBP]MVTIND     = [M:RCB1]MVTIND   (I)
+        If [M:RCB0]VCRTYP = 15
+           [F:LBP]VCRTYP  = 10
+           [F:LBP]VCRNUM  = [M:RCB1]VCRNUMORI(I)
+           [F:LBP]VCRLIN  = [M:RCB1]VCRLINORI(I)
+        Else
+           [F:LBP]VCRTYP  = [M:RCB0]VCRTYP
+           [F:LBP]VCRNUM  = [M:RCB1]VCRNUM   (I)
+           [F:LBP]VCRLIN  = [M:RCB1]VCRLIN   (I)
+        Endif
+        For J = 1 To [M:RCB1]LBENBR1 (I)
+                 [F:LBP]NUMLIG = J
+                 Call ECRLBP(PRET) From STKLPN
+                 If PRET = 0
+                    GOK  = 0
+                    Break
+                 Endif
+        Next J
+    When 10       :
+        [F:LBP]RPTCOD     = [M:RCB1]LBEFMT1  (I)
+        [F:LBP]VCRTYP     = 10
+        [F:LBP]VCRNUM     = [M:RCB1]VCRNUM   (I)
+        [F:LBP]VCRLIN     = [M:RCB1]VCRLIN   (I)
+        For J = 1 To [M:RCB1]LBENBR1 (I)
+            [F:LBP]NUMLIG = J
+            Call ECRLBP(PRET) From STKLPN
+            If PRET = 0
+               GOK  = 0
+               Break
+            Endif
+        Next J
+Endcase
+If GOK = 0 : Rollback : Else : Commit : Endif
+Return
+
+###############################################################################
+# RELOADLPN   : Remplissage du tableau ecran RCB2
+###############################################################################
+Subprog RELOADLPN
+Local Char ETAT, ETAT2
+Local Integer LSTJFLG # Indique si le filtre est fait sur STOJOU ou sur le Link
+Local Char    LCRIT(250)
+Local Char    LETAT, LPRN
+nolign = 0
+Effzo [M:RCB2]
+Local Char FILSUP(250)
+FILSUP= "1=1"
+GPOINT="BEFFILRCB2"
+Gosub  ENTREE From EXEFNC
+
+LCRIT = "STOFCY=[M:RCB0]STOFCY"
+If [M:RCB0]VCRNUMSTR <> ""
+   LCRIT  += "&VCRNUM>=[M:RCB0]VCRNUMSTR"
+   LCRIT  += "&VCRNUM<=[M:RCB0]VCRNUMEND"
+Endif
+Filter [F:LPN] Where evalue(LCRIT) & evalue(FILSUP)
+&      Order By Key LPN0
+For [LPN]
+    If [F:TCTR]TCTRNUM <> [F:LPN]TCTRNUM
+       Read [F:TCTR]TCTR0 = [F:LPN]TCTRNUM
+       If fstat : Raz [F:TCTR] : Endif
+    Endif
+    If nolign = dim([M:RCB2]LBENBR2) : Break : Endif
+    nolign  += 1
+    [M:RCB2]                      = [F:LPN]
+#   [M:RCB2]TRT2       (nolign-1) = 1+!([F:LPN]PRTFLG=2)         # hcb X3-98934
+    [M:RCB2]TRT2       (nolign-1) = 2                            # hcb X3-98934
+
+    [M:RCB2]LBEFMT2    (nolign-1) = [F:TCTR]LBEFMT
+    [M:RCB2]LBENBR2    (nolign-1) = 1
+    [M:RCB2]PCKSTKFLG  (nolign-1) = 1
+    If [M:RCB2]LBEFMT2 (nolign-1) <> ""
+       Call AM_LBEFMT2([M:RCB2]LBEFMT2(nolign-1)) From SUBRCPLBE
+    Endif
+    GPOINT="ALISCRRCB2"
+    Gosub  ENTREE From EXEFNC
+Next
+Filter [LPN]
+[M:RCB2]NBLIG2 = nolign
+Affzo [M:RCB2]
+End
+
+###############################################################################
+# PRINTLPN    : Impression etiquette contenant
+###############################################################################
+Subprog PRINTLPN(PRET)
+Variable Integer PRET
+Raz PRET
+Local Integer I
+Local Integer J
+Local Integer WNB, WNUMLIG
+Raz I
+Raz J
+Local Char WPRT(GLONAIM) , WLBEFMT(GLONARP)
+
+   #-- Recherche sur le tableau de la première ligne qui ne convient pas
+   #-- Si on trouve une ligne et que I=0 on sort du sigma
+    I = sigma(0,[M:RCB2]NBLIG2-1, (indcum+1)*(([M:RCB2]TRT2(indcum)=2)
+&          & (([M:RCB2]LBEFMT2(indcum)="") | ([M:RCB2]PRT2(indcum)=""&[M:RCB2]DEFIMP2(indcum)=""))
+&          & I=0 & sigma(I=1,1,1)))
+    If I>0
+        #--- Issue X3-227166 by TS pour générer un warning si GAXTREEM
+        #Call ERREUR(mess(48,184,1)-num$(I)-"("+mess(222,200,1)+","+mess(41,197,1)+","+mess(16,135,1)+")") From GESECRAN
+        If GWEBSERV & GAXTREEM
+          Call MESSAGE(mess(48,184,1)-num$(I)-"("+mess(222,200,1)+","+mess(41,197,1)+","+mess(16,135,1)+")") From GESECRAN
+        Else
+          Call ERREUR(mess(48,184,1)-num$(I)-"("+mess(222,200,1)+","+mess(41,197,1)+","+mess(16,135,1)+")") From GESECRAN
+        Endif
+        #---
+        PRET = 1
+        End
+    Endif
+
+# Tri du tableau selon imprimante,format
+Sorta [M:RCB2]NBLIG2 [M:RCB2]NBLIG2
+&     Order By [M:RCB2]PRT2(indice),[M:RCB2]LBEFMT2(indice),[M:RCB2]LPNNUM(indice)
+GPOINT="SORTARCB2"
+Gosub  ENTREE From EXEFNC
+
+#--- Issue X3-220344 by TS
+Call ECR_TRACE(mess(577,184,0)) From GESECRAN
+
+Raz  WNB, WNUMLIG,WPRT,WLBEFMT
+Local Char TBPAR(10)(1..50),TBVAL(30)(1..50)
+For I = 0 To [M:RCB2]NBLIG2-1
+    Raz TBPAR, TBVAL
+    If [M:RCB2]TRT2(I)=2 & [M:RCB2]LBENBR2(I)<>0 & [M:RCB2]LBEFMT2(I)<>"" & [M:RCB2]PRT2(I)<>""
+       If [M:RCB2]PRT2(I) <> WPRT  |  [M:RCB2]LBEFMT2(I) <> WLBEFMT
+          If WPRT <> "" & WNB > 0
+             Local Char TBPAR(10)(1..50),TBVAL(30)(1..50)
+             Raz GBIDI1    # Sinon ça plante quand on vient d'un document !!!!
+             TBPAR(1) = "usr"
+             TBVAL(1) = GUSER
+             TBPAR(2) = "etat"
+             TBVAL(2) = WLBEFMT
+             TBPAR(3) = "numedt"
+             TBVAL(3) = num$(GWNUMREQ)
+             TBPAR(4) = "impselections"
+             TBVAL(4) = "1"
+             Call ETAT(WLBEFMT,WPRT,GLANGUE,0,"",TBPAR,TBVAL) From AIMP3
+          Endif
+          GWNUMREQ = uniqid([LBP])
+          WLBEFMT  = [M:RCB2]LBEFMT2(I)
+          WPRT     = [M:RCB2]PRT2   (I)
+          Raz WNB,WNUMLIG
+       Endif
+       Read [LPN]LPN0=[M:RCB2]LPNNUM(I)
+       If !fstat
+          [F:LPN]PRTFLG = 2
+          Rewrite [LPN]
+       Endif
+       For J = 1 To [M:RCB2]LBENBR2 (I)
+           Call  REMPLBP([M:RCB2]LPNNUM(I),GWNUMREQ,J+WNUMLIG,[M:RCB2]LBEFMT2(I),[M:RCB2]PCKSTKFLG(I),PRET) From STKLPN
+           If PRET = 0
+              GOK  = 0
+              Break 2
+           Endif
+           WNB +=1
+           WNUMLIG = [F:LBP]NUMLIG
+       Next J
+    Endif
+Next I
+If WNB > 0
+   Local Char TBPAR(10)(1..50),TBVAL(30)(1..50)
+   Raz GBIDI1    # Sinon ça plante quand on vient d'un document !!!!
+   TBPAR(1) = "usr"
+   TBVAL(1) = GUSER
+   TBPAR(2) = "etat"
+   TBVAL(2) = WLBEFMT
+   TBPAR(3) = "numedt"
+   TBVAL(3) = num$(GWNUMREQ)
+   TBPAR(4) = "impselections"
+   TBVAL(4) = "1"
+   Call ETAT(WLBEFMT,WPRT,GLANGUE,0,"",TBPAR,TBVAL) From AIMP3
+Endif
+
+End

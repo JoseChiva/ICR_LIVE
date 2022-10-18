@@ -1,0 +1,44 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# Z2010 - SPE/EJC-020-10 - JC.04062022 - Ventas Facturación. Número de factura largo para presentación SII
+############################################################################################################
+
+$ACTION
+
+#If GUSER="ADEV" Then : Infbox ACTION : Endif
+Case ACTION
+  When "SETBOUT"     : Gosub SETBOUT
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+##############################################################
+$SETBOUT
+# Z2010.ini
+  [M:HAE1]ZNUMFACCLI = func CNSCPTSPE.GET_ZNUMFACCLI([M:HAE0]NUM)
+  Affzo [M:HAE1]ZNUMFACCLI
+# Z2010.fin
+Return
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+
+##############################################################
+#################    ACCIONES DE CAMPO    ####################
+##############################################################
+
+Subprog D_TAX(VALEUR)
+Variable Char    VALEUR()
+#If VALEUR<>"" | GIMPORT : End : Endif
+#Call D_TAX(VALEUR) From SUBGA0
+#If VALEUR <> "" : VALEUR = 'SP999' : Endif
+If GUSER='AURJR' : Infbox 'SPEGAS.D_TAX' : Endif
+End
+
+##############################################################
+##################    FUNCIONES PROPIAS    ###################
+##############################################################

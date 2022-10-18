@@ -1,0 +1,33 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+############################################################################
+# Script name : SPEPOH
+# Description : Pedidos de compra
+# Module      : Compra
+# Version     : 1
+# Created by  : Miguel Llaja
+# Company     : Auren España
+# Created date: 11/05/2022
+############################################################################
+
+######################################################################################
+
+$ACTION
+Case ACTION
+ When Default
+Endcase
+Return
+
+Subprog C_BPSNUM(VALEUR)
+Variable Char    VALEUR()
+Read [F:FCY]FCY0 =  [M:POH0]POHFCY
+If !fstat
+  Read [F:BPR]BPR0=VALEUR
+  If [F:FCY]ZFCYTYP=2 and [F:BPR]BETFCY<>2
+    Errbox "El proveedor debe ser interplanta"
+    mkstat=2
+  Endif
+Endif
+End
+
+
+######################################################################################

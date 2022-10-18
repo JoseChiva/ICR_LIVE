@@ -1,0 +1,1443 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# 2020-11-04 DNE X3-221346 - Restrict "Previous totals carryfwd" to first fiscal year
+#001.AMG.30/08/2022 Modificaciones en el script para poder sacar en el informe el tercero pagador
+
+
+Local Char PARAM(10)(1..3) , VALEUR(10)
+PARAM(1) = "GLDEV"
+Call TRAITE_CHAR(VALEUR,PARAM,"","AIMP1","AIMP1",4,"") From GTRAITE
+End
+
+########################################################################################################
+## Etats GLGRP/GLGRPAUX/GLDEV/GLDEVAUX
+## Dans AREPORTM, la zone CLEA2 définit le type de ligne
+## Dans AREPORTM, la zone CLEA6 contient le code activité actif (CSL ou PRCSL) pour les états GLGRP et GLGRPAUX
+## A = A nouveau (avec CLEMD1 et CLEM4 renseignés)
+## A = Report (avec CLEMD2 et CLEMD3 renseignés)
+## A1 = A nouveau par devise (avec CLEMD1 et CLEM4 renseignés)
+## A1 = Report par devise (avec CLEMD2 et CLEMD3 renseignés)
+## B = Ecritures
+## C = Ecritures filtrées
+## AA = Ecritures des collectifs (CLEMD2 et CLEMD3 renseignés)
+## AA = Ecritures des collectifs par devise (CLEMD1 et CLEMD4 renseignés)
+########################################################################################################
+
+########################################################################################################
+# Exemple : GL du 15/12/2009 au 15/03/2010
+#
+#$TR1 : Parcours les écritures du 01/12/2009 jusqu'au 15/03/2010. Les écritures du 01/12/2009 au 15/12/2009
+#sont stockées dans les reports antérieurs
+#
+#$TR2 : Parcours la balance de l'année 2009 et somme de la periode 0 à la periode 11 (on retranche 1
+# à la periode de la date de fin) pour maj à nouveaux et reports antérieurs
+#
+#$TR4 : Parcours de la balance sur la période de la date de début (periode 12 année 2009) à la période
+# précédent la date de fin (période 2 année 2010). S'affiche dans l'état "Totaux du ../.. au ../.."
+#
+#$TR5 : Parcours les écritures de la période de la date de fin jusqu'à la date de fin (du 01/03/2010 au
+# 15/03/2010)
+########################################################################################################
+
+########################################################################################################
+## Contrôles de saisie
+########################################################################################################
+$ACTION
+Gosub ACTION From CPTRPT
+Return
+
+########################################################################################################
+## Exécution
+########################################################################################################
+Subprog IMPRIME(NBPAR,PARAMETRE)
+Variable Integer NBPAR
+Variable Char    PARAMETRE()(1..)
+
+########################################################################################################
+## Vérif paramètres
+########################################################################################################
+GOK = 1
+Call IMPRIME(NBPAR,PARAMETRE) From CPTRPT
+If GOK<1 : End : Endif
+
+Call TEMPON("O") From GESECRAN
+
+########################################################################################################
+## Récup paramètres
+########################################################################################################
+Local Integer TYPETAT
+Local Char    PARAM(30) , ETAT(GLONARP), TYP_ETAT(GLONARP)
+Local Integer NUMREQ , LIGNE
+Local Integer I , J , K , P , E , W
+
+Local Char    SOCIETE(GLONCPY) , SITDEB(GLONFCY) , SITFIN(GLONFCY) , SOCREF(GLONCPY)
+Local Char    DEVISE(GLONCUR) , COLDEB(GLONSAC) , COLFIN(GLONSAC) , GRPCOL(GLONGSC)
+Local Char    CPTDEB(GLONGAC) , CPTFIN(GLONGAC)
+Local Integer ANOUVEAU , DETANO , ECRILET , ECRIPRO , ECRISIM, CLOTURE
+Local Integer TRI , CUMANT , TOTPER
+Local Integer NUMBID
+Local Date    DATDEB , DATFIN
+Local Date    DEBEXE , DEBPER , FINPER
+Local Decimal EXERCICE , PERIODE , EXEDEB , EXEFIN , PERDEB , PERFIN , MAXPER
+Local Decimal ANOUV1 , ANOUV2 , REPORT1 , REPORT2
+Local Decimal ANOUVLED1  , ANOUVLED2  , ANOUVCUR1  , ANOUVCUR2
+Local Decimal FILLED1 , FILLED2 , FILCUR1 , FILCUR2
+Local Decimal REPLED1 , REPLED2 , REPCUR1 , REPCUR2
+Local Integer EFFACE , LIGREP
+Local Char    DEVREP(GLONCUR)
+
+Local Integer IECR , IBAL , IFIL
+Local Char    CRITECR(250)(1..5) , CRITBAL(250)(1..5) , CRITFIL(250)(1..5)
+Local Char    SUBCRIT(250) , CRITSAC(250)
+Local Char    X3SIT1(10) , X3SIT2(10)
+Local Char    X3PRF(10) , X3FCT(10)
+Local Date    DD(1..50,1..50) , DF(1..50,1..50)
+Local Integer NBPE(1..50) :#73390
+Local Char    TYPREP(5) , SOCCUR(GLONCPY)
+Local Date    DATE1 , DATE2
+
+Local Integer REFERENTIEL , OPTDEV , GLDEV
+Local Char    COMPTE(GLONGAC)
+Local Char    PLAN(GLONCOA) , DEVREF(GLONCUR) , PYRAMIDE(GLONGYM) , SITE(GLONFCY)
+Local Decimal DEBITLED(1..50) , CREDITLED(1..50)
+Local Decimal DEBITCUR(1..50) , CREDITCUR(1..50)
+
+Local Integer CLOPER(1..100)
+
+Local Integer DETBPRFLO
+Local Char    CSLACT(GLONACV)
+Local Integer ENDFIY, TCURFIY, ENDVCR # X3-113543
+Local Integer STRFIY                  # X3-221346 DNE 2020-11-04
+Local Integer XX
+# Impression du détail par devise
+Local File TABCUR [TCU]
+I = rowcount([TCU])
+Local Char    ARRCUR(GLONCUR)(0..I-1)
+# Pour avoir les devises triées dans l'ordre des codes devises lors de l'impression
+I = 0
+For [TCU]TCU0
+ ARRCUR(I) = [F:TCU]CUR
+ I +=1
+Next
+Local Decimal ARRDEBCUR(1..50,0..I-1), ARRCRECUR(1..50,0..I-1) : # Pour les collectifs
+Local Decimal ARRANV1(0..I-1), ARRANV2(0..I-1) : # Pour les à nouveaux
+Local Decimal ARRRPT1(0..I-1), ARRRPT2(0..I-1) : # Pour les reports
+Local Integer IMPDEV
+
+Call GETPARAM("__REQUETE",NBPAR,PARAMETRE,PARAM) : NUMREQ = val(PARAM)
+
+#angre 11/10/16
+Char TYPE__TAT(GLONARP)
+Call GETPARAM( "X3ETA", NBPAR, PARAMETRE, TYPE__TAT ) From RPTGLI
+If TYPE__TAT = "DE-GLGRPDEVAUX"
+  Call GETPARAM( "typetat", NBPAR, PARAMETRE, TYPE__TAT ) From RPTGLI
+  Call SETPARAM( "X3ETA", NBPAR, PARAMETRE, TYPE__TAT ) From ETAT
+Endif
+
+
+Call GETPARAM("X3ETA",NBPAR,PARAMETRE,PARAM)
+K = instr(1,PARAM,".")
+If K : PARAM = left$(PARAM,K-1) : Endif
+ETAT = PARAM
+
+# BY Le paramètre "typetat" contient un code
+# pour ne plus tester le nom de l'état "en dur"
+
+Call GETPARAM("typetat",NBPAR,PARAMETRE,TYP_ETAT)
+If TYP_ETAT="?????" : TYP_ETAT = ETAT : Endif
+Case TYP_ETAT
+ When "GLGRP","GLDEV","GLGRPDEV"          : TYPETAT = 1 : # GL général
+ When "GLGRPAUX","GLDEVAUX","GLGRPDEVAUX" : TYPETAT = 2 : # GL auxiliaire
+Endcase
+Case TYP_ETAT
+ When "GLGRP","GLGRPAUX","GLGRPDEV","GLGRPDEVAUX" : GLDEV = 0 : # Normal
+ When "GLDEV","GLDEVAUX"                          : GLDEV = 1 : # 2 devises
+Endcase
+
+Call GETPARAM("societe",NBPAR,PARAMETRE,SOCIETE)
+Call GETPARAM("referentiel",NBPAR,PARAMETRE,PARAM)   : REFERENTIEL = val(PARAM)
+Call GETPARAM("sitedeb",NBPAR,PARAMETRE,SITDEB)
+Call GETPARAM("sitefin",NBPAR,PARAMETRE,SITFIN)
+Call GETPARAM("datdeb",NBPAR,PARAMETRE,PARAM)        : DATDEB   = PARAM
+Call GETPARAM("datfin",NBPAR,PARAMETRE,PARAM)        : DATFIN   = PARAM
+Call GETPARAM("devise",NBPAR,PARAMETRE,DEVISE)
+Call GETPARAM("optdev",NBPAR,PARAMETRE,PARAM)        : OPTDEV   = val(PARAM)
+Call GETPARAM("coldeb",NBPAR,PARAMETRE,COLDEB)
+Call GETPARAM("colfin",NBPAR,PARAMETRE,COLFIN)
+Call GETPARAM("grpcol",NBPAR,PARAMETRE,GRPCOL)
+Call GETPARAM("comptedeb",NBPAR,PARAMETRE,CPTDEB)
+Call GETPARAM("comptefin",NBPAR,PARAMETRE,CPTFIN)
+Call GETPARAM("cloture",NBPAR,PARAMETRE,PARAM)       : CLOTURE  = val(PARAM)
+Call GETPARAM("anouveau",NBPAR,PARAMETRE,PARAM)      : ANOUVEAU = val(PARAM)
+Call GETPARAM("ecrilet",NBPAR,PARAMETRE,PARAM)       : ECRILET  = val(PARAM)
+Call GETPARAM("ecripro",NBPAR,PARAMETRE,PARAM)       : ECRIPRO  = val(PARAM)
+Call GETPARAM("ecrisim",NBPAR,PARAMETRE,PARAM)       : ECRISIM  = val(PARAM)
+Call GETPARAM("tri",NBPAR,PARAMETRE,PARAM)           : TRI      = val(PARAM)
+Call GETPARAM("pyramide",NBPAR,PARAMETRE,PYRAMIDE)
+Call GETPARAM("cumant",NBPAR,PARAMETRE,PARAM)        : CUMANT   = val(PARAM)
+Call GETPARAM("totper",NBPAR,PARAMETRE,PARAM)        : TOTPER   = val(PARAM)
+Call GETPARAM("efface",NBPAR,PARAMETRE,PARAM)        : EFFACE   = val(PARAM)
+Call GETPARAM("detbprflo",NBPAR,PARAMETRE,PARAM)     : DETBPRFLO  = val(PARAM)
+
+Call GETPARAM("X3PRF",NBPAR,PARAMETRE,X3PRF)
+Call GETPARAM("X3FCT",NBPAR,PARAMETRE,X3FCT)
+
+########################################################################################################
+## Quelques contrôles
+########################################################################################################
+
+Gosub OUVFIC
+Call LEC_CPY(SOCIETE) From CPTLEC
+If [F:CPY]CPYLEGFLG=2
+ SOCREF = SOCIETE
+Else
+ Filter [FGR] Where CPY=SOCIETE
+ Read [FGR]FGR0 First
+ Call LEC_FCY([F:FGR]FCY) From CPTLEC
+ SOCREF = [F:FCY]LEGCPY
+ # Fiche 85260 - il faut que la société de référence possède tous les exercices.
+ Local Decimal EXERCICE, PERIODE, EDEB, EFIN
+ For [FGR]
+  Call LEC_FCY([F:FGR]FCY) From CPTLEC
+  Call GETPERSOC([F:FCY]LEGCPY,REFERENTIEL,DATDEB,EXERCICE,PERIODE) From CPTSUB
+  EDEB = EXERCICE
+  Call GETPERSOC([F:FCY]LEGCPY,REFERENTIEL,DATFIN,EXERCICE,PERIODE) From CPTSUB
+  EFIN = EXERCICE
+  If EFIN<>0 & EDEB<>0
+   SOCREF = [F:FCY]LEGCPY : Break
+  Endif
+ Next
+ Filter [FGR]
+Endif
+
+# Plan de compte & co
+Call LEC_CPY(SOCREF) From CPTLEC
+Call LEC_GCM([F:CPY]ACM) From CPTLEC
+Call LEC_LED([F:GCM]LED(REFERENTIEL-1)) From CPTLEC
+PLAN = [F:LED]COA
+
+# Option devise
+DEVREF =  [F:GCM]CUR(REFERENTIEL-1)
+If GLDEV
+ OPTDEV = 3
+ Call SETPARAM("devref",NBPAR,PARAMETRE,DEVREF) From ETAT
+Elsif DEVISE="" or OPTDEV<1 or OPTDEV>2
+ OPTDEV = 1
+ PARAM = "1"
+ Call SETPARAM("optdev",NBPAR,PARAMETRE,PARAM) From ETAT
+Endif
+
+# On passe la devise d'impression
+If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"     # Issue X3-231780 by MAPON
+ Case OPTDEV
+  When 1 : Call SETPARAM("devref",NBPAR,PARAMETRE,DEVREF) From ETAT
+  When 2 : Call SETPARAM("devref",NBPAR,PARAMETRE,DEVISE) From ETAT
+ Endcase
+Endif
+
+# Pyramide => tri=1
+If PYRAMIDE<>"" & PYRAMIDE<>"?????"
+ TRI   = 1
+ PARAM = "1"
+ Call SETPARAM("tri",NBPAR,PARAMETRE,PARAM) From ETAT
+Endif
+
+If TYP_ETAT="GLGRP"  | TYP_ETAT="GLGRPAUX"      # Issue X3-231780 by MAPON
+  # if CSL1 not active ==> detbprflo must be "No"
+  If func AFNC.ACTIV("CSL1")=0
+    If DETBPRFLO
+      Call ECR_TRACE("CSL1:"-mess(24,176,1)-"-"-mess(143,105,1)-" detbprflo= "-mess(DETBPRFLO+1,1,1)-":"-mess(83,123,1),1)From GESECRAN
+      GOK = 0 : End
+    Endif
+  Endif
+  # CSLACT= "CSL"  if activity code CSL is active or = "PRCSL" if activity code PRCSL is active
+  If func AFNC.ACTIV("CSL")
+    CSLACT="CSL"
+  Elsif  func AFNC.ACTIV("PRCSL")
+    CSLACT="PRCSL"
+  Else
+    CSLACT=""
+  Endif
+ Endif
+
+########################################################################################################
+## Affectation du no de requête
+########################################################################################################
+
+PARAM = num$(NUMREQ)
+Call SETPARAM("numedt",NBPAR,PARAMETRE,PARAM) From ETAT
+MAXPER = dim([F:BAL]DEB)
+
+########################################################################################################
+## Effacement table temporaire
+########################################################################################################
+
+If EFFACE
+ Call DEBTRANS From GLOCK
+ Gosub TR3
+Endif
+
+########################################################################################################
+## Début période / exercice / à nouveau
+########################################################################################################
+Filter [PER] Where LEDTYP=REFERENTIEL & CPY=SOCREF & PEREND<=DATFIN
+Read [PER]PER0 Last
+If fstat<=2
+ FINPER = [F:PER]PEREND
+Else
+ Filter [PER] Where LEDTYP=REFERENTIEL & CPY=SOCREF
+ Read [PER]PER0 First
+ FINPER = [F:PER]PERSTR-1
+Endif
+ENDFIY=[F:PER]FIYNUM #X3-113543 - determine last fiscal year of the report
+
+Filter [PER] Where LEDTYP=REFERENTIEL & CPY=SOCREF & PEREND>=DATDEB
+Read [PER]PER0 First
+DEBPER = [F:PER]PERSTR
+STRFIY = [F:PER]FIYNUM # X3-221346 DNE 2020-11-04: We need the starting FIY to restrict "Previous totals
+                       # carryfwd." calculation to the first year.
+Filter [PER]
+
+If [F:PER]FIYNUM=1
+ DETANO = 1
+Else
+ Read [FIY]FIY0 = SOCREF;REFERENTIEL;[F:PER]FIYNUM-1
+ If [F:FIY]FIYSTA=3 : # Exercice fermé
+  DETANO = 1
+ Else
+  DETANO = 0
+ Endif
+Endif
+
+
+
+########################################################################################################
+## Parcours des écritures
+########################################################################################################
+
+Raz CRITECR
+IECR = 1
+
+## Critères généraux
+
+Call ADDCRIT(CRITECR,IECR,'[FGR]CPY="'+SOCIETE+'"')
+Call ADDCRIT(CRITECR,IECR,'[DAE]LEDTYP='+num$(REFERENTIEL))
+If SITDEB<>"" & SITDEB=SITFIN
+ Call ADDCRIT(CRITECR,IECR,'[DAE]FCYLIN="'+SITDEB+'"')
+Else
+ If SITDEB<>""
+  Call ADDCRIT(CRITECR,IECR,'[DAE]FCYLIN>="'+SITDEB+'"')
+ Endif
+ If SITFIN<>""
+  Call ADDCRIT(CRITECR,IECR,'[DAE]FCYLIN<="'+SITFIN+'"')
+ Endif
+Endif
+Call ADDCRIT(CRITECR,IECR,'[DAE]ACCDAT>=['+format$(GFMD,DEBPER)+']')
+Call ADDCRIT(CRITECR,IECR,'[DAE]ACCDAT<=['+format$(GFMD,DATFIN)+']')
+Call ADDCRIT(CRITECR,IECR,'find([HAE]CAT,1,2,4)<>0')
+If !ANOUVEAU or !DETANO
+ Call ADDCRIT(CRITECR,IECR,'[DAE]PER<>0')
+Else
+ If [L]SOCREF=[L]SOCIETE
+  #X3-113543
+  If ENDFIY>=[F:PER]FIYNUM
+    #CATUA X3-156208.sn Add ledger's closing document flag [LED]ENDVCR to the filter criteria
+    #Call ADDCRIT(CRITECR,IECR,'([DAE]PER<>0 | ([DAE]PER=0 & [DAE]FIY>='+num$([F:PER]FIYNUM)+'& [DAE]FIY<='+num$(ENDFIY)+'))') #X3-113543
+    Call ADDCRIT(CRITECR,IECR,'([DAE]PER<>0 | ([DAE]PER=0 & [LED]ENDVCR=2 & [DAE]FIY>='+num$([F:PER]FIYNUM)+'& [DAE]FIY<='+num$(ENDFIY)+') | ([DAE]PER=0 & [LED]ENDVCR<>2 & [DAE]FIY='
+& +num$([F:PER]FIYNUM)+'))')
+    #CATUA X3-156208.en
+  Else
+    Call ADDCRIT(CRITECR,IECR,'([DAE]PER<>0 | ([DAE]PER=0 & [DAE]FIY='+num$([F:PER]FIYNUM)+'))')
+  Endif
+  #X3-113543
+ Endif
+Endif
+If !CLOTURE
+ Call ADDCRIT(CRITECR,IECR,'[DAE]PER<>'+num$(MAXPER-1))
+Endif
+Case TYPETAT
+ When 1 :# GL général
+  CRITSAC = '[DAE]SAC=""'
+  If CPTDEB<>"" & CPTDEB=CPTFIN
+   Call ADDCRIT(CRITECR,IECR,'[DAE]ACC="'+CPTDEB+'"')
+  Else
+   If CPTDEB<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]ACC>="'+CPTDEB+'"')
+   Endif
+   If CPTFIN<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]ACC<="'+CPTFIN+'"')
+   Endif
+  Endif
+ When 2 :# GL auxiliaire
+  CRITSAC = '[DAE]SAC<>""'
+  If COLDEB<>"" & COLDEB=COLFIN
+   Call ADDCRIT(CRITECR,IECR,'[DAE]SAC="'+COLDEB+'"')
+  Else
+   If COLDEB<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]SAC>="'+COLDEB+'"')
+   Endif
+   If COLFIN<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]SAC<="'+COLFIN+'"')
+   Endif
+  Endif
+  If CPTDEB<>"" & CPTDEB=CPTFIN
+  #001.ini
+  # Call ADDCRIT(CRITECR,IECR,'[DAE]BPR="'+CPTDEB+'"')
+  Call ADDCRIT(CRITECR,IECR,'left$([F:DAE]DES,len(CPTDEB))="'+CPTDEB+'"')
+  #001.fin
+  Else
+   If CPTDEB<>""
+   #001.ini
+ #   Call ADDCRIT(CRITECR,IECR,'[DAE]BPR>="'+CPTDEB+'"')
+    Call ADDCRIT(CRITECR,IECR,'left$([F:DAE]DES,len(CPTDEB))>="'+CPTDEB+'"')
+   #001.fin
+   Endif
+   If CPTFIN<>""
+   #001.ini
+  #  Call ADDCRIT(CRITECR,IECR,'[DAE]BPR<="'+CPTFIN+'"')
+    Call ADDCRIT(CRITECR,IECR,'left$([F:DAE]DES,len(CPTDEB))<="'+CPTFIN+'"')
+    #001.fin
+   Endif
+  Endif
+  If GRPCOL<>""
+   SUBCRIT = 'find([DAE]SAC'
+   For [GSC]GSC0 Where COA=PLAN & GRU=GRPCOL
+    SUBCRIT += ',"'+[GSC]SAC+'"'
+   Next
+   SUBCRIT += ")<>0"
+   Call ADDCRIT(CRITECR,IECR,SUBCRIT)
+  Endif
+Endcase
+If DEVISE<>"" & OPTDEV<>1
+ Call ADDCRIT(CRITECR,IECR,'[DAE]CUR="'+DEVISE+'"')
+Endif
+
+## Critères de filtrage du détail
+
+Raz CRITFIL
+IFIL = 1
+If !ECRISIM
+ Call ADDCRIT(CRITFIL,IFIL,'[HAE]CAT<>2')
+Endif
+If !ECRIPRO
+ Call ADDCRIT(CRITFIL,IFIL,'[HAE]STA=2')
+Endif
+If !ECRILET
+ SUBCRIT =  '([DAE]MTC="" | [DAE]MTC>="a" |'
+ SUBCRIT -= '[DAE]MTCDATMAX>['+format$(GFMD,DATFIN)+'] |'
+ SUBCRIT -= '[DAE]MTCDATMIN<['+format$(GFMD,DATDEB)+'])'
+ Call ADDCRIT(CRITFIL,IFIL,SUBCRIT)
+Endif
+If DEVISE<>"" & OPTDEV=1
+ Call ADDCRIT(CRITFIL,IFIL,'[DAE]CUR="'+DEVISE+'"')
+Endif
+
+If CRITECR(1)="" : CRITECR(1) = "1=1" : Endif
+If CRITFIL(1)="" : CRITFIL(1) = "1=1" : Endif
+
+Case TYPETAT
+ When 1 : # GL général
+  #CATUA X3-156208 Add a link to GLED [LED] table
+  Link [DAE] With [HAE]HAE0   ~= [DAE]TYP;[DAE]NUM
+&                ,[GAC]GAC0   ~= [DAE]COA;[DAE]ACC
+&                ,[FGR]FGR0   ~= SOCIETE;[DAE]FCYLIN
+&                ,[ACC]CODACC  = GUSER;[GAC]ACS
+&                ,[AFF]AFF0    = [DAE]FCYLIN;X3PRF;X3FCT
+&                ,[LED]LED0    = [DAE]LED
+&   As [LNK]
+&   Where evalue(CRITECR(1..IECR)) & evalue(CRITSAC)
+&   & [ACC]CONSUL=2 & [AFF]PRFCOD<>""
+&   Order By Key CLE = [DAE]ACC;[DAE]FCYLIN;[DAE]TYP;[DAE]NUM
+
+ When 2 : # GL auxiliaire
+  #CATUA X3-156208 Add a link to GLED [LED] table
+  Link [DAE] With [HAE]HAE0   ~= [DAE]TYP;[DAE]NUM
+&                 ,[FGR]FGR0   ~= SOCIETE;[DAE]FCYLIN
+&                 ,[ACC]CODACC  = GUSER;[BPR]ACS
+&                 ,[AFF]AFF0    = [DAE]FCYLIN;X3PRF;X3FCT
+&                 ,[LED]LED0    = [DAE]LED
+&   As [LNK]
+&   Where evalue(CRITECR(1..IECR)) & evalue(CRITSAC)
+&   & [ACC]CONSUL=2 & [AFF]PRFCOD<>""
+&   Order By Key CLE = [DAE]BPR;[DAE]FCYLIN;[DAE]TYP;[DAE]NUM
+
+Endcase
+
+
+Case TYPETAT
+ When 1 : Columns [LNK] ([DAE],[HAE])
+ When 2 : Columns [LNK] ([DAE],[HAE])
+Endcase
+
+# Il faut une écriture bidon pour les liens
+If OPTDEV<>3
+ Filter [DA2] Where CPY=SOCREF & LEDTYP=REFERENTIEL & ACC<>"" & ACCNUM>0
+ Read [DA2]DAE1 First
+ NUMBID = [F:DA2]ACCNUM
+ Filter [DA2]
+Else
+ Filter [DA2] Where CPY=SOCREF & LEDTYP=REFERENTIEL & ACC<>"" & ACCNUM>0 & CUR=DEVISE
+ Read [DA2]DAE1 First
+ NUMBID = [F:DA2]ACCNUM
+ Filter [DA2]
+Endif
+
+LIGNE = 0
+Call DEBTRANS From GLOCK
+Gosub TR1
+
+#############################################################################################################
+## Parcours de la balance pour les reports antérieurs
+#############################################################################################################
+
+Raz CRITBAL
+IBAL = 1
+
+## Critères généraux
+
+#CATUA X3-156208.sn Add ledger's closing document flag [LED]ENDVCR to the filter criteria
+#Call ADDCRIT(CRITBAL,IBAL,'[FIY]FIYSTR<=['+format$(GFMD,FINPER)+']') #X3-113543 - must get all carry forward entries within the report range
+Call ADDCRIT(CRITBAL,IBAL,'(([LED]ENDVCR=2 & [FIY]FIYSTR<=['+format$(GFMD,FINPER)+']) | ([LED]ENDVCR<>2 & [FIY]FIYSTR<=['+format$(GFMD,DEBPER)+']))')
+#CATUA X3-156208.en
+
+Call ADDCRIT(CRITBAL,IBAL,'[FIY]FIYEND>=['+format$(GFMD,DEBPER)+']')
+Call ADDCRIT(CRITBAL,IBAL,'[BAL]LEDTYP='+num$(REFERENTIEL))
+Call ADDCRIT(CRITBAL,IBAL,'[FGR]CPY="'+SOCIETE+'"')
+If SITDEB<>"" & SITDEB=SITFIN
+ Call ADDCRIT(CRITBAL,IBAL,'[BAL]FCY="'+SITDEB+'"')
+Else
+ If SITDEB<>""
+  Call ADDCRIT(CRITBAL,IBAL,'[BAL]FCY>="'+SITDEB+'"')
+ Endif
+ If SITFIN<>""
+  Call ADDCRIT(CRITBAL,IBAL,'[BAL]FCY<="'+SITFIN+'"')
+ Endif
+Endif
+If DEVISE<>""
+ Call ADDCRIT(CRITBAL,IBAL,'[BAL]CUR="'+DEVISE+'"')
+Endif
+
+## Selon l'état
+
+Case TYPETAT
+ When 1
+  Call ADDCRIT(CRITBAL,IBAL,'[BAL]BPR=""')
+  If CPTDEB<>"" & CPTDEB=CPTFIN
+   Call ADDCRIT(CRITBAL,IBAL,'[BAL]ACC="'+CPTDEB+'"')
+  Else
+   If CPTDEB<>""
+    Call ADDCRIT(CRITBAL,IBAL,'[BAL]ACC>="'+CPTDEB+'"')
+   Endif
+   If CPTFIN<>""
+    Call ADDCRIT(CRITBAL,IBAL,'[BAL]ACC<="'+CPTFIN+'"')
+   Endif
+  Endif
+ When 2
+  Call ADDCRIT(CRITBAL,IBAL,'[BAL]BPR<>""')
+  If COLDEB<>"" & COLDEB=COLFIN
+   Read [GAC]GAC1 = PLAN;COLDEB
+   Call ADDCRIT(CRITBAL,IBAL,'[BAL]ACC="'+[F:GAC]ACC+'"')
+  Else
+   If COLDEB<>""
+    Call ADDCRIT(CRITBAL,IBAL,'[GAC]ACCSHO>="'+COLDEB+'"')
+   Endif
+   If COLFIN<>""
+    Call ADDCRIT(CRITBAL,IBAL,'[GAC]ACCSHO<="'+COLFIN+'"')
+   Endif
+  Endif
+  If CPTDEB<>"" & CPTDEB=CPTFIN
+   Call ADDCRIT(CRITBAL,IBAL,'[BAL]BPR="'+CPTDEB+'"')
+  Else
+   If CPTDEB<>""
+    Call ADDCRIT(CRITBAL,IBAL,'[BAL]BPR>="'+CPTDEB+'"')
+   Endif
+   If CPTFIN<>""
+    Call ADDCRIT(CRITBAL,IBAL,'[BAL]BPR<="'+CPTFIN+'"')
+   Endif
+  Endif
+  If GRPCOL<>""
+   SUBCRIT = 'find([GAC]ACCSHO'
+   For [GSC] Where COA=PLAN & GRU=GRPCOL
+    SUBCRIT += ',"'+[GSC]SAC+'"'
+   Next
+   SUBCRIT += ")<>0"
+   Call ADDCRIT(CRITBAL,IBAL,SUBCRIT)
+  Endif
+Endcase
+
+If CRITBAL(1)="" : CRITBAL(1) = "1=1" : Endif
+
+Case TYPETAT
+ When 1
+  #CATUA X3-156208 Add a link to GLED [LED] table
+  Link [BAL] With [FGR]FGR0   ~= SOCIETE;[BAL]FCY
+&                ,[FIY]FIY0   ~= [BAL]CPY;[BAL]LEDTYP;[BAL]FIY
+&                ,[GAC]GAC0   ~= [BAL]COA;[BAL]ACC
+&                ,[ACC]CODACC  = GUSER;[GAC]ACS
+&                ,[AFF]AFF0    = [BAL]FCY;X3PRF;X3FCT
+&                ,[LED]LED0    = [BAL]LED
+&   As [LNK]
+&   Where evalue(CRITBAL(1..IBAL))
+&   & [ACC]CONSUL=2 & [AFF]PRFCOD<>""
+&   Order By Key CLE = [BAL]CPY;[BAL]ACC;[BAL]FCY;[F:BAL]FIY
+#&   Order By Key CLE = [BAL]CPY;[BAL]ACC;[BAL]FCY            X3-113543
+
+ When 2
+  #CATUA X3-156208 Add a link to GLED [LED] table
+  Link [BAL] With [FGR]FGR0   ~= SOCIETE;[BAL]FCY
+&                ,[FIY]FIY0   ~= [BAL]CPY;[BAL]LEDTYP;[BAL]FIY
+&                ,[GAC]GAC0   ~= [BAL]COA;[BAL]ACC
+&                ,[BPR]BPR0   ~= [BAL]BPR
+&                ,[ACC]CODACC  = GUSER;[BPR]ACS
+&                ,[AFF]AFF0    = [BAL]FCY;X3PRF;X3FCT
+&                ,[LED]LED0    = [BAL]LED
+&   As [LNK]
+&   Where evalue(CRITBAL(1..IBAL))
+&   & [ACC]CONSUL=2 & [AFF]PRFCOD<>""
+&   Order By Key CLE = [BAL]CPY;[BAL]BPR;[BAL]FCY;[F:BAL]FIY
+#&   Order By Key CLE = [BAL]CPY;[BAL]BPR;[BAL]FCY          X3-113543
+Endcase
+
+
+Case TYPETAT
+ When 1 : Columns [LNK] ([BAL],[GAC]SAC)
+ When 2 : Columns [LNK] ([BAL])
+Endcase
+
+Call DEBTRANS From GLOCK
+Gosub TR2
+
+########################################################################################################
+## Mouvements des collectifs (GL général)
+########################################################################################################
+If TYPETAT=1
+
+ # Totaux jusqu'au début de période d'impression => Balance
+
+ Raz CRITBAL
+ IBAL = 1
+
+ Call ADDCRIT(CRITBAL,IBAL,'[FGR]CPY="'+SOCIETE+'"')
+ If SITDEB<>"" & SITDEB=SITFIN
+  Call ADDCRIT(CRITBAL,IBAL,'[BAL]FCY="'+SITDEB+'"')
+ Else
+  If SITDEB<>""
+   Call ADDCRIT(CRITBAL,IBAL,'[BAL]FCY>="'+SITDEB+'"')
+  Endif
+  If SITFIN<>""
+   Call ADDCRIT(CRITBAL,IBAL,'[BAL]FCY<="'+SITFIN+'"')
+  Endif
+ Endif
+ Call ADDCRIT(CRITBAL,IBAL,'[BAL]LEDTYP='+num$(REFERENTIEL))
+ Call ADDCRIT(CRITBAL,IBAL,'[FIY]FIYEND>=['+format$(GFMD,DEBPER)+']')
+ Call ADDCRIT(CRITBAL,IBAL,'[FIY]FIYSTR<=['+format$(GFMD,FINPER)+']')
+ Call ADDCRIT(CRITBAL,IBAL,'[GAC]SAC=2')
+ If DEVISE<>""
+  Call ADDCRIT(CRITBAL,IBAL,'[BAL]CUR="'+DEVISE+'"')
+ Endif
+ Call ADDCRIT(CRITBAL,IBAL,'[BAL]BPR=""')
+ If CPTDEB<>"" & CPTDEB=CPTFIN
+  Call ADDCRIT(CRITBAL,IBAL,'[BAL]ACC="'+CPTDEB+'"')
+ Else
+  If CPTDEB<>""
+   Call ADDCRIT(CRITBAL,IBAL,'[BAL]ACC>="'+CPTDEB+'"')
+  Endif
+  If CPTFIN<>""
+   Call ADDCRIT(CRITBAL,IBAL,'[BAL]ACC<="'+CPTFIN+'"')
+  Endif
+ Endif
+
+ Link [BAL] With  [FGR]FGR0   ~= SOCIETE;[BAL]FCY
+&                ,[FIY]FIY0   ~= [BAL]CPY;[BAL]LEDTYP;[BAL]FIY
+&                ,[GAC]GAC0   ~= [BAL]COA;[BAL]ACC
+&                ,[ACC]CODACC  = GUSER;[GAC]ACS
+&                ,[AFF]AFF0    = [BAL]FCY;X3PRF;X3FCT
+&   As [LNK]
+&   Where evalue(CRITBAL(1..IBAL))
+&   & [ACC]CONSUL=2 & [AFF]PRFCOD<>""
+&   Order By Key CLE = [BAL]CPY;[BAL]ACC;[BAL]FCY;[BAL]FIY
+
+ Columns [LNK] ([BAL])
+
+ Call DEBTRANS From GLOCK
+ Gosub TR4
+
+# Mouvements de la dernière période jusqu'à la date de fin
+
+ If DATFIN>FINPER
+
+  Raz CRITECR
+  IECR = 1
+  Call ADDCRIT(CRITECR,IECR,'[FGR]CPY="'+SOCIETE+'"')
+  Call ADDCRIT(CRITECR,IECR,'[DAE]LEDTYP='+num$(REFERENTIEL))
+  If SITDEB<>"" & SITDEB=SITFIN
+   Call ADDCRIT(CRITECR,IECR,'[DAE]FCYLIN="'+SITDEB+'"')
+  Else
+   If SITDEB<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]FCYLIN>="'+SITDEB+'"')
+   Endif
+   If SITFIN<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]FCYLIN<="'+SITFIN+'"')
+   Endif
+  Endif
+  Call ADDCRIT(CRITECR,IECR,'[DAE]ACCDAT>=['+format$(GFMD,FINPER+1)+']')
+  Call ADDCRIT(CRITECR,IECR,'[DAE]ACCDAT<=['+format$(GFMD,DATFIN)+']')
+  Call ADDCRIT(CRITECR,IECR,'find([HAE]CAT,1,2,4)<>0')
+  If !ANOUVEAU or !DETANO
+   Call ADDCRIT(CRITECR,IECR,'[DAE]PER<>0')
+  Endif
+  If !CLOTURE
+   Call ADDCRIT(CRITECR,IECR,'[DAE]PER<>'+num$(MAXPER-1))
+  Endif
+  CRITSAC = '[DAE]SAC<>""'
+  If CPTDEB<>"" & CPTDEB=CPTFIN
+   Call ADDCRIT(CRITECR,IECR,'[DAE]ACC="'+CPTDEB+'"')
+  Else
+   If CPTDEB<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]ACC>="'+CPTDEB+'"')
+   Endif
+   If CPTFIN<>""
+    Call ADDCRIT(CRITECR,IECR,'[DAE]ACC<="'+CPTFIN+'"')
+   Endif
+  Endif
+  If DEVISE<>"" & OPTDEV<>1
+   Call ADDCRIT(CRITECR,IECR,'[DAE]CUR="'+DEVISE+'"')
+  Endif
+
+  Link [DAE] With [HAE]HAE0   ~= [DAE]TYP;[DAE]NUM
+&                ,[FGR]FGR0   ~= SOCIETE;[DAE]FCYLIN
+&                ,[GAC]GAC0   ~= [DAE]COA;[DAE]ACC
+&                ,[ACC]CODACC  = GUSER;[GAC]ACS
+&                ,[AFF]AFF0    = [DAE]FCYLIN;X3PRF;X3FCT
+&   As [LNK]
+&   Where evalue(CRITECR(1..IECR)) & evalue(CRITSAC)
+&   & [ACC]CONSUL=2 & [AFF]PRFCOD<>""
+&   Order By Key CLE = [DAE]ACC;[DAE]FCYLIN
+
+  Columns [LNK] ([DAE],[HAE]TYP)
+  Call DEBTRANS From GLOCK
+  Gosub TR5
+ Endif
+Endif
+
+## Fin des courses
+
+Call TEMPOFF From GESECRAN
+End
+
+########################################################################################################
+## Détail des écritures
+########################################################################################################
+$TR1
+GOK = 1
+Trbegin [ARM]
+ Raz SOCCUR, CLOPER
+ For [LNK]CLE(2) : # Tiers ou compte + site
+  Raz REPLED1 , REPLED2
+  Raz REPCUR1 , REPCUR2
+  Raz FILLED1 , FILLED2
+  Raz FILCUR1 , FILCUR2
+  Raz ARRANV1 , ARRANV2
+  Raz ARRRPT1 , ARRRPT2
+  Case TYPETAT
+   When 1 : COMPTE = [F:DAE]ACC
+   When 2 : COMPTE = [F:DAE]BPR
+  Endcase
+  SITE = [F:DAE]FCYLIN
+  If SOCCUR<>[F:DAE]CPY
+   Gosub INICLOPER
+  Endif
+  For [LNK]CLE
+
+   #CATUA X3-156208.sn Add ledger's closing document flag ENDVCR
+   Raz ENDVCR
+   Read[F:LED]LED0 = [DAE]LED
+   If !fstat
+     ENDVCR = [LED]ENDVCR
+   Endif
+   #If CLOTURE | ([F:DAE]PER=0 & [F:DAE]FIY>=EXEDEB & [F:DAE]FIY<=EXEFIN) | ([F:DAE]PER<>0 & CLOPER([F:DAE]FIY)<>[F:DAE]PER) #X3-113543
+   If CLOTURE | ([F:DAE]PER=0 & ENDVCR=2 & [F:DAE]FIY>=EXEDEB & [F:DAE]FIY<=EXEFIN) | ([F:DAE]PER=0 & ENDVCR<>2 & [F:DAE]FIY=EXEDEB) | ([F:DAE]PER<>0 & CLOPER([F:DAE]FIY)<>[F:DAE]PER)
+   #CATUA X3-156208.en
+
+    If [F:DAE]ACCDAT<DATDEB : # Report période début
+     REPLED1 += [F:DAE]AMTLED*([F:DAE]SNS>0)
+     REPLED2 += [F:DAE]AMTLED*([F:DAE]SNS<0)
+     REPCUR1 += [F:DAE]AMTCUR*([F:DAE]SNS>0)
+     REPCUR2 += [F:DAE]AMTCUR*([F:DAE]SNS<0)
+     If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"      # Issue X3-231780 by MAPON
+      I = find([F:DAE]CUR,ARRCUR)
+      If !I
+       # Devise inexistante
+       Call ERREURT([F:DAE]CUR-mess(151,105,1),1) From GESECRAN
+       GOK = -1 : Break 2
+      Endif
+      ARRRPT1(I-1) += [F:DAE]AMTCUR*([F:DAE]SNS>0)
+      ARRRPT2(I-1) += [F:DAE]AMTCUR*([F:DAE]SNS<0)
+     Endif
+    Else
+     If evalue(CRITFIL(1..IFIL)) : # Ecriture à imprimer
+      TYPREP = "B"
+      LIGREP = [F:DAE]ACCNUM
+      If OPTDEV=1
+       DEVREP = DEVREF
+      Else
+       DEVREP = DEVISE
+      Endif
+      IMPDEV = 1
+      #X3-113543
+      Read [F:FIY]FIY0=[F:DAE]CPY;[F:DAE]LEDTYP;[F:DAE]FIY
+      If fstat=0
+        DATE1 = [F:FIY]FIYEND
+        DATE2 = [F:FIY]FIYEND
+      Endif
+      #X3-113543
+      Gosub CRELIGNE
+      Raz IMPDEV
+      If GOK<1 : Break 2 : Endif
+     Else
+      FILLED1 += [F:DAE]AMTLED*([F:DAE]SNS>0)
+      FILLED2 += [F:DAE]AMTLED*([F:DAE]SNS<0)
+      FILCUR1 += [F:DAE]AMTCUR*([F:DAE]SNS>0)
+      FILCUR2 += [F:DAE]AMTCUR*([F:DAE]SNS<0)
+      If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"     # Issue X3-231780 by MAPON
+       I = find([F:DAE]CUR,ARRCUR)
+       If !I
+        # Devise inexistante
+        Call ERREURT([F:DAE]CUR-mess(151,105,1),1) From GESECRAN
+        GOK = -1 : Break 2
+       Endif
+       ARRANV1(I-1) += [F:DAE]AMTCUR*([F:DAE]SNS>0)
+       ARRANV2(I-1) += [F:DAE]AMTCUR*([F:DAE]SNS<0)
+      Endif
+     Endif
+    Endif
+   Endif
+  Next
+  If GOK<1 : Break : Endif
+  Raz ANOUV1 , ANOUV2 , REPORT1 , REPORT2
+  TYPREP = "A"
+  LIGREP = NUMBID
+  Case OPTDEV
+   When 1
+    If (REPLED1 or REPLED2)
+     DEVREP  = DEVREF
+     REPORT1 = REPLED1
+     REPORT2 = REPLED2
+     Gosub CRELIGNE
+    Endif
+   When 2
+    If (REPCUR1 or REPCUR2)
+     DEVREP  = DEVISE
+     REPORT1 = REPCUR1
+     REPORT2 = REPCUR2
+     Gosub CRELIGNE
+    Endif
+   When 3
+    If (REPLED1 or REPLED2 or REPCUR1 or REPCUR2)
+     DEVREP  = DEVREF
+     TYPREP = "AT"
+     REPORT1 = REPLED1
+     REPORT2 = REPLED2
+     ANOUV1  = REPCUR1
+     ANOUV2  = REPCUR2
+     Gosub CRELIGNE
+    Endif
+  Endcase
+  If GOK<1 : Break : Endif
+  If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"       # Issue X3-231780 by MAPON
+   Raz ANOUV1, ANOUV2, REPORT1, REPORT2
+   For I=0 To dim(ARRCUR)-1
+    If ARRCUR(I)<>"" & (ARRRPT1(I)<>0 | ARRRPT2(I)<>0)
+     TYPREP  = "A"
+     IMPDEV  = 1
+     DEVREP  = ARRCUR(I)
+     REPORT1 = ARRRPT1(I)
+     REPORT2 = ARRRPT2(I)
+     Gosub CRELIGNE
+     Raz IMPDEV
+     If GOK<1 : Break 2 Endif
+    Endif
+   Next
+  Endif
+  Raz ANOUV1 , ANOUV2 , REPORT1 , REPORT2
+  TYPREP = "C"
+  Case OPTDEV
+   When 1
+    If (FILLED1 or FILLED2)
+     DEVREP  = DEVREF
+     REPORT1 = FILLED1
+     REPORT2 = FILLED2
+     Gosub CRELIGNE
+    Endif
+   When 2
+    If (FILCUR1 or FILCUR2)
+     DEVREP  = DEVISE
+     REPORT1 = FILCUR1
+     REPORT2 = FILCUR2
+     Gosub CRELIGNE
+    Endif
+   When 3
+    If (FILLED1 or FILLED2 or FILCUR1 or FILCUR2)
+     DEVREP  = DEVREF
+     REPORT1 = FILLED1
+     REPORT2 = FILLED2
+     ANOUV1  = FILCUR1
+     ANOUV2  = FILCUR2
+     Gosub CRELIGNE
+    Endif
+  Endcase
+  If GOK<1 : Break : Endif
+  If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"       # Issue X3-231780 by MAPON
+   Raz ANOUV1, ANOUV2, REPORT1, REPORT2
+   For I=0 To dim(ARRCUR)-1
+    If ARRCUR(I)<>"" & (ARRANV1(I)<>0 | ARRANV2(I)<>0)
+     TYPREP = "C"
+     IMPDEV = 1
+     DEVREP = ARRCUR(I)
+     ANOUV1 = ARRANV1(I)
+     ANOUV2 = ARRANV2(I)
+     Gosub CRELIGNE
+     Raz IMPDEV
+     If GOK<1 : Break 2 Endif
+    Endif
+   Next
+  Endif
+ Next
+ If GOK<1 : Goto AB_TR1 : Endif
+Commit
+Return
+
+$AB_TR1
+Rollback
+Return
+
+$INICLOPER
+SOCCUR = [F:DAE]CPY
+Call GETPERSOC([F:DAE]CPY,[F:DAE]LEDTYP,DEBPER,EXEDEB,PERDEB) From CPTSUB
+Call GETPERSOC([F:DAE]CPY,[F:DAE]LEDTYP,FINPER,EXEFIN,PERFIN) From CPTSUB #X3-113543
+If !CLOTURE
+ #Call GETPERSOC([F:DAE]CPY,[F:DAE]LEDTYP,FINPER,EXEFIN,PERFIN) From CPTSUB #X3-113543.o
+ For E=EXEDEB To EXEFIN
+  Filter [PER] Where CPY=[F:DAE]CPY & LEDTYP=[F:DAE]LEDTYP & FIYNUM=E
+  Read [PER]PER0 Last
+  Filter [PER]
+  If !fstat & (EXEFIN<>E | [F:PER]PERNUM=PERFIN)
+   CLOPER(E) = [F:PER]PERNUM + 1
+  Endif
+ Next
+Endif
+Return
+
+########################################################################################################
+## Totaux antérieurs
+########################################################################################################
+$TR2
+GOK = 1
+Trbegin [ARM]
+ SOCCUR = ""
+ For [LNK]CLE(2) # Compte + société
+  Case TYPETAT
+   When 1 : COMPTE = [F:BAL]ACC
+   When 2 : COMPTE = [F:BAL]BPR
+  Endcase
+  If [F:BAL]CPY<>SOCCUR
+   Call GETPERSOC([F:BAL]CPY,REFERENTIEL,DEBPER,EXERCICE,PERIODE) From CPTSUB
+   SOCCUR = [F:BAL]CPY
+  Endif
+  For [LNK]CLE(3) : # Site
+   SITE = [F:BAL]FCY
+   Raz ANOUVLED1 , ANOUVLED2
+   Raz ANOUVCUR1 , ANOUVCUR2
+   Raz ARRANV1, ARRANV2
+   Raz REPLED1, REPLED2
+   Raz REPCUR1, REPCUR2
+   Raz ARRRPT1, ARRRPT2
+   TCURFIY=0  #X3-113543
+   For [LNK]CLE
+# Gestion des ANX réels & simulés (Bug 19928 : 06/11/03)
+    If PERIODE=1 & ANOUVEAU & (!DETANO or (TYPETAT=1 & [F:GAC]SAC=2))
+     #X3-113543 - create records for each carry forward. Also need to capture the fiscal year date to be displayed on report
+     If TCURFIY<>0 and TCURFIY<> [F:BAL]FIY
+       Gosub A_NOUVEAUX
+     Endif
+     TCURFIY= [F:BAL]FIY
+     Read [F:FIY]FIY0=[F:BAL]CPY;[F:BAL]LEDTYP;[F:BAL]FIY
+     If fstat=0
+       DATE1 = [F:FIY]FIYEND
+       DATE2 = [F:FIY]FIYEND
+     Endif
+     #X3-113543
+     #(Pour les collectifs on ne sait pas restituer le détail à nouveau)
+     ANOUVLED1  += [F:BAL]DEBLED(0)
+     ANOUVLED2  += [F:BAL]CDTLED(0)
+     ANOUVCUR1  += [F:BAL]DEB(0)
+     ANOUVCUR2  += [F:BAL]CDT(0)
+     If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"      # Issue X3-231780 by MAPON
+      I = find([F:BAL]CUR,ARRCUR)
+      If !I
+       # Devise inexistante
+       Call ERREURT([F:BAL]CUR-mess(151,105,1),1) From GESECRAN
+       GOK = -1 : Break 3
+      Endif
+      ARRANV1(I-1) += [F:BAL]DEB(0)
+      ARRANV2(I-1) += [F:BAL]CDT(0)
+     Endif
+    Endif
+    # Gestion des ANX réels & simulés (Bug 19928 : 06/11/03)
+    If CUMANT
+     If [F:BAL]FIY = STRFIY and PERIODE > 1 # X3-221346 DNE 2020-11-04: Restrict "Previous totals carryfwd" to first fiscal year
+      REPLED1 += sum([F:BAL]DEBLED(0..PERIODE-1))
+      REPLED2 += sum([F:BAL]CDTLED(0..PERIODE-1))
+      REPCUR1 += sum([F:BAL]DEB(0..PERIODE-1))
+      REPCUR2 += sum([F:BAL]CDT(0..PERIODE-1))
+      If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"     # Issue X3-231780 by MAPON
+       I = find([F:BAL]CUR,ARRCUR)
+       If !I
+        # Devise inexistante
+        Call ERREURT([F:BAL]CUR-mess(151,105,1),1) From GESECRAN
+        GOK = -1 : Break 3
+       Endif
+       ARRRPT1(I-1) += sum([F:BAL]DEB(0..PERIODE-1))
+       ARRRPT2(I-1) += sum([F:BAL]CDT(0..PERIODE-1))
+      Endif
+     Endif
+    Endif
+   Next
+
+   Gosub A_NOUVEAUX #X3-113543
+
+   # Totaux antérieurs
+   TYPREP = "A"
+   LIGREP = NUMBID
+   Raz ANOUV1, ANOUV2, REPORT1, REPORT2
+   Case OPTDEV
+    When 1
+     REPORT1 = REPLED1
+     REPORT2 = REPLED2
+     DEVREP  = DEVREF
+    When 2
+     REPORT1 = REPCUR1
+     REPORT2 = REPCUR2
+     DEVREP  = DEVISE
+    When 3
+     TYPREP  = "AT"
+     REPORT1 = REPLED1
+     REPORT2 = REPLED2
+     ANOUV1  = REPCUR1
+     ANOUV2  = REPCUR2
+     DEVREP  = DEVISE
+   Endcase
+   If ANOUV1 or ANOUV2 or REPORT1 or REPORT2
+    Gosub LIGREP
+    If GOK<1 : Break 2 : Endif
+   Endif
+   If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"        # Issue X3-231780 by MAPON
+    Raz ANOUV1, ANOUV2, REPORT1, REPORT2
+    For I=0 To dim(ARRCUR)-1
+     If ARRCUR(I)<>"" & (ARRRPT1(I)<>0 | ARRRPT2(I)<>0)
+      TYPREP  = "A"
+      IMPDEV  = 1
+      DEVREP  = ARRCUR(I)
+      REPORT1 = ARRRPT1(I)
+      REPORT2 = ARRRPT2(I)
+      Gosub CRELIGNE
+      Raz IMPDEV
+      If GOK<1 : Break 3 : Endif
+     Endif
+    Next
+   Endif
+  Next
+ Next
+ If GOK<1 : Goto AB_TR2 : Endif
+Commit
+Return
+
+$LIGREP
+If DEBPER<DATDEB
+ Filter [ARM] Where RPTCOD=ETAT & USR=GUSER & NUMREQ=[L]NUMREQ
+&                 & CLEA1=COMPTE & CLEA2=TYPREP & CLEA3=DEVREP & CLEA4=SITE
+ Read [ARM]ARM0 First
+ Filter [ARM]
+ If fstat<=2
+  [F:ARM]CLEMD1 += ANOUV1
+  [F:ARM]CLEMD4 += ANOUV2
+  [F:ARM]CLEMD2 += REPORT1
+  [F:ARM]CLEMD3 += REPORT2
+  Rewrite [ARM]
+  If fstat
+   GOK = 0 : Call FSTA("ARM") From GLOCK : Return
+  Endif
+ Else
+  Gosub CRELIGNE
+ Endif
+Else
+ Gosub CRELIGNE
+Endif
+Return
+
+$CRELIGNE
+LIGNE += 1
+Raz [F:ARM]
+[F:ARM]RPTCOD = ETAT
+[F:ARM]USR    = GUSER
+[F:ARM]NUMREQ = NUMREQ
+[F:ARM]NUMLIG = LIGNE
+[F:ARM]CLEA1  = COMPTE
+[F:ARM]CLEA2  = TYPREP
+[F:ARM]CLEA3  = DEVREP
+[F:ARM]CLEA4  = SITE
+[F:ARM]CLEA5  = PLAN
+[F:ARM]CLEA6  = CSLACT
+[F:ARM]CLEN1  = LIGREP
+[F:ARM]CLEN2  = IMPDEV
+[F:ARM]CLEMD1 = ANOUV1
+[F:ARM]CLEMD4 = ANOUV2
+[F:ARM]CLEMD2 = REPORT1
+[F:ARM]CLEMD3 = REPORT2
+[F:ARM]CLED1  = DATE1
+[F:ARM]CLED2  = DATE2
+[F:ARM]CREDAT = date$
+Write [ARM]
+If fstat
+ GOK = 0 : Call FSTA("ARM") From GLOCK : Return
+Endif
+Raz ANOUV1,ANOUV2,REPORT1,REPORT2
+Raz DATE1,DATE2
+Return
+
+$AB_TR2
+Rollback
+Return
+
+########################################################################################################
+## Effacement table temporaire
+########################################################################################################
+$TR3
+GOK = 1
+Trbegin [ARM]
+ Delete [ARM] Where RPTCOD=ETAT & USR=GUSER & CREDAT<date$
+Commit
+Return
+
+########################################################################################################
+## Mouvements des collectifs (balance)
+########################################################################################################
+$TR4
+GOK = 1
+Trbegin [ARM]
+ SOCCUR = ""
+ For [LNK]CLE(2) : # Compte+société
+  COMPTE = [F:BAL]ACC
+  If [F:BAL]CPY<>SOCCUR
+   Call GETPERSOC([F:BAL]CPY,REFERENTIEL,DEBPER,EXEDEB,PERDEB) From CPTSUB
+   Call GETPERSOC([F:BAL]CPY,REFERENTIEL,FINPER,EXEFIN,PERFIN) From CPTSUB
+   For E=EXEDEB To EXEFIN
+    If E>0 : NBPE(E)=0 : Endif  :#73390
+    For [PER]PER0 Where CPY=[F:BAL]CPY & LEDTYP=REFERENTIEL & FIYNUM=E
+     DD(E,[F:PER]PERNUM) = [F:PER]PERSTR
+     DF(E,[F:PER]PERNUM) = [F:PER]PEREND
+     NBPE(E)+=1 :#73390
+    Next
+   Next E
+   SOCCUR = [F:BAL]CPY
+  Endif
+  For [LNK]CLE(3) : # Site
+   SITE = [F:BAL]FCY
+   For [LNK]CLE(4) : # Exercice
+    Raz DEBITLED,CREDITLED,DEBITCUR,CREDITCUR, ARRDEBCUR, ARRCRECUR
+    #73390
+    For [LNK]CLE
+     If EXEDEB=EXEFIN
+      #For P=PERDEB To PERFIN : Gosub LIGNE : Next P
+      If PERFIN = NBPE([F:BAL]FIY) & CLOTURE
+       For P=PERDEB To PERFIN+1 : Gosub LIGNE : Next P
+      Else
+       For P=PERDEB To PERFIN : Gosub LIGNE : Next P
+      Endif
+     Elsif [F:BAL]FIY=EXEDEB
+      #For P=PERDEB To MAXPER-1 : Gosub LIGNE : Next P
+      If CLOTURE
+       For P=PERDEB To NBPE([F:BAL]FIY)+1 : Gosub LIGNE : Next P
+      Else
+       For P=PERDEB To NBPE([F:BAL]FIY) : Gosub LIGNE : Next P
+      Endif
+     Elsif [F:BAL]FIY=EXEFIN
+      #For P=1 To PERFIN : Gosub LIGNE : Next P
+      If PERFIN = NBPE([F:BAL]FIY) & CLOTURE
+       For P=1 To PERFIN+1 : Gosub LIGNE : Next P
+      Else
+       For P=1 To PERFIN : Gosub LIGNE : Next P
+      Endif
+     Else
+      #For P=1 To MAXPER-1 : Gosub LIGNE : Next P
+      If CLOTURE
+       For P=1 To NBPE([F:BAL]FIY)+1 : Gosub LIGNE : Next P
+      Else
+       For P=1 To NBPE([F:BAL]FIY) : Gosub LIGNE : Next P
+      Endif
+     Endif
+     If GOK<1 : Break 4 : Endif
+    Next
+    Gosub ECR_LIGNE
+    If GOK<1 : Break 3 : Endif
+   Next
+  Next
+ Next
+ If GOK<1 : Goto AB_TR4 : Endif
+Commit
+Return
+
+$LIGNE
+DEBITLED(P)  += [F:BAL]DEBLED(P)
+CREDITLED(P) += [F:BAL]CDTLED(P)
+DEBITCUR(P)  += [F:BAL]DEB(P)
+CREDITCUR(P) += [F:BAL]CDT(P)
+If TYP_ETAT="GLGRPDEV"        # Issue X3-231780 by MAPON
+ I = find([F:BAL]CUR,ARRCUR)
+ If !I
+  # Devise inexistante
+  Call ERREURT([F:BAL]CUR-mess(151,105,1),1) From GESECRAN
+  GOK = -1 : Return
+ Endif
+ ARRDEBCUR(P,I-1) += [F:BAL]DEB(P)
+ ARRCRECUR(P,I-1) += [F:BAL]CDT(P)
+Endif
+Return
+
+$ECR_LIGNE
+For P=1 To MAXPER-1
+ TYPREP = "AA"
+ LIGREP = NUMBID
+ #73390
+ If P<=NBPE([F:BAL]FIY)
+  DATE1  = DD([F:BAL]FIY,P)
+  DATE2  = DF([F:BAL]FIY,P)
+ Else
+  #indication pour ecriture de cloture
+  DATE1  = DF([F:BAL]FIY,NBPE([F:BAL]FIY))
+  DATE2  = DF([F:BAL]FIY,NBPE([F:BAL]FIY))
+ Endif
+ #
+ Raz REPORT1, REPORT2, ANOUV1, ANOUV2
+ Case OPTDEV
+  When 1
+   DEVREP  = DEVREF
+   REPORT1 = DEBITLED(P)
+   REPORT2 = CREDITLED(P)
+  When 2
+   DEVREP  = DEVISE
+   REPORT1 = DEBITCUR(P)
+   REPORT2 = CREDITCUR(P)
+  When 3
+   DEVREP  = DEVISE
+   REPORT1 = DEBITLED(P)
+   REPORT2 = CREDITLED(P)
+   ANOUV1  = DEBITCUR(P)
+   ANOUV2  = CREDITCUR(P)
+ Endcase
+ If REPORT1 or REPORT2 or ANOUV1 or ANOUV2
+  Gosub CRELIGNE
+  If GOK<1 : Break : Endif
+ Endif
+ If TYP_ETAT="GLGRPDEV"       # Issue X3-231780 by MAPON
+  Raz REPORT1, REPORT2, ANOUV1, ANOUV2
+  For I=0 To dim(ARRCUR)-1
+   If ARRCUR(I)<>"" & (ARRDEBCUR(P,I)<>0 | ARRCRECUR(P,I)<>0)
+    TYPREP = "AA"
+    IMPDEV = 1
+    DEVREP = ARRCUR(I)
+    ANOUV1 = ARRDEBCUR(P,I)
+    ANOUV2 = ARRCRECUR(P,I)
+    DATE1  = DD([F:BAL]FIY,P)
+    DATE2  = DF([F:BAL]FIY,P)
+    Gosub CRELIGNE
+    Raz IMPDEV
+    If GOK<1 : Break 2 : Endif
+   Endif
+  Next
+ Endif
+Next P
+Return
+
+$AB_TR4
+Rollback
+Return
+
+########################################################################################################
+## Mouvements des collectifs (écritures)
+########################################################################################################
+$TR5
+GOK = 1
+Trbegin [ARM]
+ Raz SOCCUR, CLOPER
+ For [LNK]CLE(2) : # Tiers ou compte + site
+  Raz REPLED1 , REPLED2
+  Raz REPCUR1 , REPCUR2
+  Raz ARRRPT1, ARRRPT2
+  COMPTE = [F:DAE]ACC
+  SITE   = [F:DAE]FCYLIN
+  If SOCCUR<>[F:DAE]CPY
+   Gosub INICLOPER
+  Endif
+  For [LNK]CLE
+   If CLOTURE | ([F:DAE]PER=0 & [F:DAE]FIY=EXEDEB) | ([F:DAE]PER<>0 & CLOPER([F:DAE]FIY)<>[F:DAE]PER)
+    REPLED1 += [F:DAE]AMTLED*([F:DAE]SNS>0)
+    REPLED2 += [F:DAE]AMTLED*([F:DAE]SNS<0)
+    REPCUR1 += [F:DAE]AMTCUR*([F:DAE]SNS>0)
+    REPCUR2 += [F:DAE]AMTCUR*([F:DAE]SNS<0)
+    If TYP_ETAT="GLGRPDEV"      # Issue X3-231780 by MAPON
+     I = find([F:DAE]CUR,ARRCUR)
+     If !I
+      # Devise inexistante
+      Call ERREURT([F:DAE]CUR-mess(151,105,1),1) From GESECRAN
+      GOK = -1 : Break 2
+     Endif
+     ARRRPT1(I-1) += [F:DAE]AMTCUR*([F:DAE]SNS>0)
+     ARRRPT2(I-1) += [F:DAE]AMTCUR*([F:DAE]SNS<0)
+    Endif
+   Endif
+  Next
+  TYPREP = "AA"
+  LIGREP = NUMBID
+  DATE1 = FINPER+1
+  DATE2 = DATFIN
+  Raz REPORT1, REPORT2, ANOUV1, ANOUV2
+  Case OPTDEV
+   When 1
+    DEVREP  = DEVREF
+    REPORT1 = REPLED1
+    REPORT2 = REPLED2
+   When 2
+    DEVREP  = DEVISE
+    REPORT1 = REPCUR1
+    REPORT2 = REPCUR2
+   When 3
+    DEVREP  = DEVISE
+    REPORT1 = REPLED1
+    REPORT2 = REPLED2
+    ANOUV1  = REPCUR1
+    ANOUV2  = REPCUR2
+  Endcase
+  If REPORT1 or REPORT2 or ANOUV1 or ANOUV2
+   Gosub CRELIGNE
+   If GOK<1 : Break : Endif
+  Endif
+  If TYP_ETAT="GLGRPDEV"      # Issue X3-231780 by MAPON
+   Raz REPORT1, REPORT2, ANOUV1, ANOUV2
+   For I=0 To dim(ARRCUR)-1
+    If ARRCUR(I)<>"" & (ARRRPT1(I)<>0 | ARRRPT2(I)<>0)
+     TYPREP = "AA"
+     IMPDEV = 1
+     DEVREP = ARRCUR(I)
+     ANOUV1 = ARRRPT1(I)
+     ANOUV2 = ARRRPT2(I)
+     DATE1  = FINPER+1
+     DATE2  = DATFIN
+     Gosub CRELIGNE
+     Raz IMPDEV
+     If GOK<1 : Break 2 : Endif
+    Endif
+   Next
+  Endif
+ Next
+ If GOK<1 : Goto AB_TR5 : Endif
+Commit
+Return
+
+$AB_TR5
+Rollback
+Return
+
+$OUVFIC
+If clalev([F:ARM])=0 : Local File AREPORTM   [ARM] : Endif
+If clalev([F:HAE])=0 : Local File GACCENTRY  [HAE] : Endif
+If clalev([F:DAE])=0 : Local File GACCENTRYD [DAE] : Endif
+If clalev([F:DA2])=0 : Local File GACCENTRYD [DA2] : Endif
+If clalev([F:CPY])=0 : Local File COMPANY    [CPY] : Endif
+If clalev([F:FCY])=0 : Local File FACILITY   [FCY] : Endif
+If clalev([F:FGR])=0 : Local File FACGROUP   [FGR] : Endif
+If clalev([F:GSC])=0 : Local File GRPSAC     [GSC] : Endif
+If clalev([F:BAL])=0 : Local File BALANCE    [BAL] : Endif
+If clalev([F:GAC])=0 : Local File GACCOUNT   [GAC] : Endif
+If clalev([F:PER])=0 : Local File PERIOD     [PER] : Endif
+If clalev([F:FIY])=0 : Local File FISCALYEAR [FIY] : Endif
+If clalev([F:BPR])=0 : Local File BPARTNER   [BPR] : Endif
+If clalev([F:ACC])=0 : Local File ACCES      [ACC] : Endif
+If clalev([F:AFF])=0 : Local File AFCTFCY    [AFF] : Endif
+If clalev([F:GCM])=0 : Local File GACM       [GCM] : Endif
+If clalev([F:LED])=0 : Local File GLED       [LED] : Endif
+If clalev([F:BPR])=0 : Local File BPARTNER   [BPR] : Endif
+Return
+
+Subprog ADDCRIT(CRITERE,ICRIT,SUBCRIT)
+Variable Char    CRITERE()(1..)
+Variable Integer ICRIT
+Value    Char    SUBCRIT
+If len(CRITERE(ICRIT))+len(SUBCRIT)>240
+ ICRIT += 1
+Endif
+If CRITERE(1)<>"" : CRITERE(ICRIT) -= "&" : Endif
+CRITERE(ICRIT) -= SUBCRIT
+End
+
+Subprog GETPARAM(PARAM,NBPAR,PARAMETRE,VALEUR)
+Value    Char    PARAM
+Variable Integer NBPAR
+Variable Char    PARAMETRE()(1..)
+Variable Char    VALEUR
+Local Integer L
+Call GETPARAM(PARAM,NBPAR,PARAMETRE,VALEUR) From ETAT
+L = len(PARAM)
+If right$(PARAM,L-2)="deb"
+ If VALEUR=string$(len(VALEUR)," ") : VALEUR = "" : Endif
+Elsif right$(PARAM,L-2)="fin"
+ If VALEUR=string$(len(VALEUR),"z") : VALEUR = "" : Endif
+Endif
+End
+########################################################################################################
+#X3-113543 - copied from above since we now call it from multiple places
+$A_NOUVEAUX
+   # A nouveaux
+   TYPREP = "A"
+   LIGREP = NUMBID
+   Raz ANOUV1, ANOUV2, REPORT1, REPORT2
+   Case OPTDEV
+    When 1
+     ANOUV1  = ANOUVLED1
+     ANOUV2  = ANOUVLED2
+     DEVREP  = DEVREF
+    When 2
+     ANOUV1  = ANOUVCUR1
+     ANOUV2  = ANOUVCUR2
+     DEVREP  = DEVISE
+    When 3
+     TYPREP  = "AX"
+     ANOUV1  = ANOUVLED1
+     ANOUV2  = ANOUVLED2
+     REPORT1 = ANOUVCUR1
+     REPORT2 = ANOUVCUR2
+     DEVREP  = DEVISE
+   Endcase
+   If ANOUV1 or ANOUV2 or REPORT1 or REPORT2
+    Gosub LIGREP
+    If GOK<1 : Break 2 : Endif
+   Endif
+   If TYP_ETAT="GLGRPDEV" | TYP_ETAT="GLGRPDEVAUX"      # Issue X3-231780 by MAPON
+    Raz ANOUV1, ANOUV2, REPORT1, REPORT2
+    For I=0 To dim(ARRCUR)-1
+     If ARRCUR(I)<>"" & (ARRANV1(I)<>0 | ARRANV2(I)<>0)
+      TYPREP = "A"
+      IMPDEV = 1
+      DEVREP = ARRCUR(I)
+      ANOUV1 = ARRANV1(I)
+      ANOUV2 = ARRANV2(I)
+      Gosub CRELIGNE
+      Raz IMPDEV
+      If GOK<1 : Break 3 : Endif
+     Endif
+    Next
+   Endif
+   Raz ANOUVLED1 , ANOUVLED2
+   Raz ANOUVCUR1 , ANOUVCUR2
+   Raz ARRANV1, ARRANV2
+Return
+#X3-113543

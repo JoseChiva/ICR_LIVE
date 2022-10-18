@@ -1,0 +1,55 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+Local Char    PBPCNUM (250)(1..100)
+Local Char    PBPCNAM (250)(1..100)
+Local Date    PUPDDAT (1..100)
+Local Integer J
+
+Call CUSLIST(365,PBPCNUM,PBPCNAM,PUPDDAT)
+
+For J=1 To dim(PBPCNUM)
+  Infbox PBPCNUM - "-" - PBPCNAM - "-" - num$(PUPDDAT)
+Next
+
+End
+################################################################################
+
+Subprog CUSLIST(UPDDAYS,BPCNUM,BPCNAM,UPDDAT)
+# parámetros de entrada
+Value Integer UPDDAYS
+# parámetros de salida
+Variable Char BPCNUM ()(1..100)
+Variable Char BPCNAM ()(1..100)
+Variable Date UPDDAT (1..100)
+
+  # abrir la tabla BPCUSTOMER
+  Local File BPCUSTOMER [BPC]
+
+  # el web service está configurado para devolver hasta 100 registros
+  # si se alcanza este número, se sale del bucle para evitar error en el índice
+  Local Integer LISTMAX : LISTMAX = 100
+
+  # llenar los arrays con Clientes
+  Local Integer I : I = 1
+
+  # calcular la fecha de corte utilizando la fecha actual y los días de actualización
+  Date UPDDATE
+  UPDDATE = date$-UPDDAYS
+
+  # BPCTYPE = 1 -> Incluir clients tipo a (normal)
+  # OSTCTL  = 3 -> Incluir clientes que no están on hold
+  Filter [F:BPC] Where UPDDAT >= UPDDATE #and BPCTYP=1 and OSTCTL<>3
+  For [F:BPC]
+    BPCNUM(I) = [F:BPC]BPCNUM
+    BPCNAM(I) = [F:BPC]BPCNAM
+    UPDDAT(I) = [F:BPC]UPDDAT
+    I += 1
+    If I>= LISTMAX : Break : Endif
+  Next
+
+  Close Local File [BPC]
+
+End
+
+
+Subprog POHLIST()
+End

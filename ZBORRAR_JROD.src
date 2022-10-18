@@ -1,0 +1,28 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$ 
+gosub ouvre
+#gosub count
+gosub exec
+end
+
+
+$OUVRE
+LOCAL FILE GACCENTRY [F:HAE]
+local integer WCOUNT 
+RETURN
+
+$COUNT
+FOR [F:HAE] WHERE [F:HAE]NUM >= 'ODG220002-001309' AND [F:HAE]NUM<='ODG220002-001418'
+	WCOUNT += 1
+next
+infbox num$(WCOUNT)
+Return
+
+$EXEC
+trbegin adoval
+FOR [F:HAE] WHERE [F:HAE]NUM >= 'ODG220002-001309' AND [F:HAE]NUM<='ODG220002-001418'
+	[F:HAE]CAT = 2 
+REWRITE [F:HAE]
+next
+commit
+
+RETURN

@@ -1,0 +1,55 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+##Tarea para reactivar facturas enviadas al SII con error 1117
+##STADOC_0 (ESTADO DOCUMENTO) 1:PENDIENTE 2:ENVIADO
+##FLGSEL_0 (ENVIAR) 1:NO 2:SI
+##VCRSTA_0 (ESTADO HACIENDA) 1: PENDIENTE 2:ACEPTADA 3:ACEPT CON ERRORES 4:RECHAZADA
+##VCRERRNUM_0 (CÓDIGO ERROR) 1117 (ERROR DNI MENORES)
+##VCRERRDES_0 (DESCRIPCIÓN ERROR)
+##FLGNIFREC_0 (NIF NO REGISTRADO)
+##########################################################################
+
+Gosub EXEC
+End
+
+$ACTION
+Case ACTION
+  When "EXEC": Gosub EXEC
+Endcase
+Return
+
+########################################################################
+$EXEC
+
+If !clalev([F:ZDCL])   : Local File DCLSII  [ZDCL] : Endif
+
+Call ECR_TRACE('--------------------------------------------------------------------------',0)From GESECRAN
+Call ECR_TRACE('EJECUCIÓN PROCESO REACTIVACIÓN FACTURAS MONITOR SII CON ERROR 1117 NIF NO REGISTRADO',0)From GESECRAN
+Call ECR_TRACE('--------------------------------------------------------------------------',0)From GESECRAN
+
+Filter [F:ZDCL] Where VCRERRNUM='1117'
+  For [F:ZDCL]
+    If !fstat
+    # Rewrite Normal Message
+        Trbegin [F:ZDCL]
+          [F:ZDCL]STADOC=1
+          [F:ZDCL]FLGSEL=2
+          [F:ZDCL]VCRSTA=1
+          [F:ZDCL]VCRERRNUM=''
+          [F:ZDCL]VCRERRDES=''
+          [F:ZDCL]FLGNIFREC=2
+        Rewrite[F:ZDCL]
+        If !fstat Then
+          Commit
+           Call ECR_TRACE('Reactivada la factura '+[F:ZDCL]VCRNUM,0)From GESECRAN
+        Else
+          Rollback
+           Call ECR_TRACE('Rollback fallo en la actualización de la factura '+[F:ZDCL]VCRNUM,1)From GESECRAN
+        Endif
+     Endif
+  Next
+Call ECR_TRACE('--------------------------------------------------------------------------',0)From GESECRAN
+Call ECR_TRACE('FIN DEL PROCESO',0)From GESECRAN
+Call ECR_TRACE('--------------------------------------------------------------------------',0)From GESECRAN
+Filter [F:ZDCL]
+Close File [F:ZDCL]
+Return

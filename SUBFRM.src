@@ -1,0 +1,2182 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+#*X3-112211  SMO  Implement control when reading parameters managed by activity code
+#*X3-194177, X3-198627  MNO (15/05/2020)  web service settings check for Whitelist API
+# X3-202659 2020-06-30 Bader Remittance grouping
+# Issue X3-211468 - 2020-10-07 by MAPON : As data administrator I want to see the status of all payments connected to remittance
+# Issue X3-211469 - 2020-10-14 by MAPON : As data administrator I want to see and manage the status of each payment connected to remittance
+# Issue X3-211473 - 2020-10-20 by MNO : As data administrator I want to approve all not approved payments on remittance level
+# Issue X3-218095 - 2020-10-20 by MNO : As data administrator I want to remove all not approved payments from remittance
+# Issue X3-225006 - 2020-11-23 by MAPON : Remove unapproved issue
+# Issue X3-233718 - 2021-01-16 by Angre : Write file name, if available, directly into the grid when adding an payment
+# Issue X3-236132 - 2021-02-23 by Bader : CRELIG: revert Antons change for X3-233718, instead call to new $HANDLE_BANK_FILE if bank file has been created before
+# 06-05-2022.001  - AMG.Modificación fuente para Entrada Remesa diferentes vtos en fichero sepa.
+
+
+Local Char OFONCTION(20)
+OFONCTION=GFONCTION
+If GFONCTION<>"GESFRM"
+ GFONCTION="GESFRM" : Call AUTORIS From EXEFNC
+Endif
+Raz GBIDC1, GBIDC2, GPILCOD
+Call OBJET("FRM",GBIDC1,GBIDC2) From GOBJET
+If OFONCTION<>GFONCTION
+ GFONCTION=OFONCTION : Call AUTORIS From EXEFNC
+Endif
+End
+
+$ACTION
+Case ACTION
+ When "OUVRE"        : Gosub OUVRE
+ When "OUVRE_BOITE"  : Gosub OUVRE_BOITE
+ When "FILTRE"       : Gosub FILTRE
+ When "LIENS"        : Gosub LIENS
+ When "SETBOUT"      : Gosub SETBOUT
+ When "AVANTBOUT"    : Gosub AVANTBOUT
+ When "EXEBOUT"      : Gosub EXEBOUT
+ When "RAZCRE"       : Gosub RAZCRE
+ When "RAZDUP"       : Gosub RAZDUP
+ When "ABANDON"      : Gosub ABANDON
+ When "APRES_CHOI"   : Gosub APRES_CHOI
+ When "STATUT"       : Gosub STATUT
+ When "AV_IMPRIME"   : Gosub AV_IMPRIME
+
+ When "GAUCHE"       : Gosub GAUCHE
+ When "FILGAUCHE"    : Gosub FILGAUCHE
+ When "TIROIR"       : Gosub TIROIR
+ When "APRES_MODIF"  : Gosub APRES_MODIF
+ When "AVANT_MOD"    : Gosub AVANT_MOD
+ When "AFFMASK"      : Gosub AFFMASK
+ When "EFFMASK"      : Gosub EFFMASK
+ When "FERME"        : Gosub FERME
+
+ When "VERIF_CRE"    : Gosub VERIF_CRE
+ When "INICRE"       : Gosub INICRE
+ When "CREATION"     : Gosub CRELIG
+ When "APRES_CRE"    : Gosub APRES_CRE
+
+ When "VERIF_MOD"    : Gosub VERIF_MOD
+ When "INIMOD"       : Gosub INIMOD
+ When "MODIF"        : Gosub MODIF
+ When "APRES_MOD"    : Gosub APRES_MOD
+
+ When "VERF_ANU"     : Gosub VERF_ANU
+ When "AV_ANNULE"    : Gosub AV_ANNULE
+
+ When "SEL_LISTE"    : Gosub SEL_LISTE
+ When "SEL_TABLE"    : Gosub SEL_TABLE
+ When "FIN_TABLE"    : Gosub FIN_TABLE
+ When "AB1_NBLIG"    : Gosub AB1_NBLIG
+ When "BB1_NBLIG"    : Gosub BB1_NBLIG
+ When "AVANT_SUITE"  : Gosub AVANT_SUITE
+ When "FIN"          : Gosub FIN
+Endcase
+Return
+
+$OUVRE
+Local Char    TYPREG(3), OLDFRM(GLONVCR), AUZFCY(20), VIROPT(10), EDICOD(240)
+Local Integer ILISPYL, ILISPAY, MAXLIG, SIGN, NOL, STAT, ERR, I, K, SAVCONS,OKTCA
+Local Decimal MONTANT, MT
+Local Libelle PLEIN, GENFIC
+Local Date    DAT, DAT2, DCRE, DMOD, DATJ
+Local Char    UCRE(GLONAUS), UMOD(GLONAUS), SAVDIRBQE(10)
+Local Char    LOTCRIT(240), OLOTCRIT(240), REGCRIT(240), OREGCRIT(240)
+Local Char    VALC1(20), VALC2(20), VALC3(20)
+Local Char    RTZCUR(GLONCUR)
+Local Char    DEVLED(GLONCUR)
+Local Char    PLAN(GLONCOA)
+Local Integer REFLIST # In a SDD payment transaction, the left list is refreshed when the first payment is assigned
+Local Char PYHNUM_RMV(GLONVCR)(1..,9) # Issue X3-218095
+Local Integer JJ                  # Issue X3-218095
+
+# Issue X3-73437
+If !find("ALH",GPILCOD)
+ #Local Char FILTRE_MENU(255) : FILTRE_MENU=GBIDC1
+ Local Char FILTRE_MENU(255) : FILTRE_MENU=GBIDC2
+Endif
+
+
+MAXLIG=dim([M]NUM)
+
+## Laisser la possibilité d'aller sur le client
+Local Char    DIR_FICBAN(GDIMFIC)
+Local Char    MACHIN(GDIMFIC)                      : # Machine
+Local Char    IRS(2)                               : # Séparateur
+Local Char    L_NOM(20)                            : # Nom fichier à générer
+Local Integer L_NUM                                : # No extension fichier à générer
+Local Char    L_EXT(5)                             : # Extension fichier à générer
+Local Integer MONOCPY
+
+If !clalev([F:PYD]) : Local File PAYMENTD   [PYD] : Endif
+If !clalev([F:PIH]) : Local File PINVOICE   [PIH] : Endif
+If !clalev([F:DUD]) : Local File GACCDUDATE [DUD] : Endif
+If !clalev([F:ARX]) : Local File AREPORTX   [ARX] : K=0 : Else K=1 : Endif
+If !clalev([F:TCA]) : Local File TABCOUAFF  [TCA] : Endif
+If !clalev([F:TED]) : Local File TABCODEDT  [TED] : Endif
+If !clalev([F:TPY]) : Local File TABPAYTYP  [TPY] : Endif
+If filinfo(filpath("FIL","HISTOMDT","fde",""),0)>0
+ If !clalev([F:HMDT]) : Local File HISTOMDT [HMDT] : Endif
+Endif
+
+EDICOD=""
+For [ARX]ARX0(1) Where INTCOD>"BORREM" & INTCOD<"BORREMz"
+ EDICOD+="\"+right$([F:ARX]INTCOD,7)
+Next : # [ARX]
+If !K : Close Local File [ARX] : Endif
+
+Local Integer STALOT
+Local Char    CODLOT(GLONVCR)(0..MAXLIG)
+Local Integer NBRLOT
+
+Local Datetime WCREDATTIM : # FQ122537
+
+Global Tinyint GKPL_ACTIVE_MR
+[V]GKPL_ACTIVE_MR = func AFNC.ACTIV("KPL")
+
+# Issue X3-222662 by MAPON
+Global Integer POST_BUTTON, BANK_FILE_BUTTON, APPROVE_ALL_BUTTON, REMOVE_UNAPPROVED_BUTTON
+[V]POST_BUTTON = func FIND_PAYMENT_APPROVAL_BUTTON(1,"V")
+[V]BANK_FILE_BUTTON = func FIND_PAYMENT_APPROVAL_BUTTON(1,"B")
+[V]APPROVE_ALL_BUTTON = func FIND_PAYMENT_APPROVAL_BUTTON(3,"G4")
+[V]REMOVE_UNAPPROVED_BUTTON = func FIND_PAYMENT_APPROVAL_BUTTON(3,"G8")
+# Issue X3-222662 end
+
+Return
+
+
+$OUVRE_BOITE
+ILISPYL=find("PYL",OBJLIS)-1 : # Numero du tiroir "Lot de saisie" s'il est présent
+ILISPAY=find("PAY",OBJLIS)-1 : # Numero du tiroir "Règlements" s'il est présent
+Return
+
+$FILTRE
+FILTSUP="[F:FRM]FRMFLG=1"
+If dim(FILTRE_MENU)>0
+ If FILTRE_MENU<>""
+ # Issue X3-138980 by MRDAB
+  #  Issue X3-73437
+  #  FILTSUP += ' & [F:FRM]PAYTYP="'+FILTRE_MENU+'"'
+#  FILTSUP += ' & [F:FRM]FRMNUM="'+FILTRE_MENU+'"'
+  FILTSUP += ' & ([F:FRM]FRMNUM="'+FILTRE_MENU+'"'
+  FILTSUP += ' | [F:FRM]PAYTYP="'+FILTRE_MENU+'")'
+ # Issue X3-138980 end
+ Endif
+Endif
+Return
+
+$AFFMASK
+If GBIDC1<>""
+ [M:FRM0]PAYTYP = GBIDC1
+ Affzo [M:FRM0]PAYTYP
+ If dim([M:FRM0]ZPAYTYP)>0 : Affzo [M:FRM0]ZPAYTYP : Endif
+ Grizo [FRM0]PAYTYP
+Else
+ Actzo [FRM0]PAYTYP
+Endif
+Return
+
+
+$APRES_CHOI
+Case REPONSE
+ When GSTALFT
+  [F:FRM]FRMFLG=1
+ When GSTARAF
+  Case currbox
+   When "GAU_CHE"+num$(ILISPYL) : Raz OLOTCRIT  :# Pour forcer le RAF_LOTS
+   When "GAU_CHE"+num$(ILISPAY) : Raz OREGCRIT
+  Endcase
+ # Issue X3-222662 by MAPON
+ When [V]POST_BUTTON
+  If !ACTBOU([V]POST_BUTTON-1800)
+    ACTBOU([V]POST_BUTTON-1800) = 1
+  Endif
+ When [V]BANK_FILE_BUTTON
+  If !ACTBOU([V]BANK_FILE_BUTTON-1800)
+    ACTBOU([V]BANK_FILE_BUTTON-1800) = 1
+  Endif
+ # Issue X3-222662 end
+Endcase
+Return
+
+$LIENS
+Raz [M:FRM1]
+MA=0 : Gosub SETMASK From =WINPROG
+Call LEC_CPY([F:FRM]CPY) From CPTLEC
+If dim(GSDDMGT)>0
+ #X3-112211
+ #GSDDMGT = val(func AFNC.PARAM("SDDMGT",[F:FRM]CPY))
+ If func AFNC.ACTIV("SDD"): GSDDMGT = val(func AFNC.PARAM("SDDMGT",[F:FRM]CPY)) : Endif
+ #END X3-112211
+Endif
+Call SETCUR(1,[F:CPY]CPY,DEVLED) From CPTDIV
+[M]CURCPY=DEVLED
+GCURLEG = [F:CPY]LEG
+Call LEC_TPY_LEG(GCURLEG,[F:FRM]PAYTYP) From CPTLEC
+Call LEC_TED(GCURLEG,[F:TPY]CODEDT) From CPTLEC
+If !fstat : [L]TYPREG = [F:TED]TRT : Else [L]TYPREG="" : Endif
+Call LEC_BAN([F:FRM]BAN) From CPTLEC
+If fstat=0 : [M]CURBAN=[F:BAN]CUR
+Else       : [M]CURBAN=[M]CURCPY
+Endif
+
+If !([F:TPY]DACCHQTYP<>3 & [F:BAN]CHQTYPFLG=2)
+ [M]CHQTYP=0
+Endif
+
+MA=1 : Gosub SETMASK From =WINPROG
+NOL=0 : PLEIN=0
+For [PYH]PYH1 Where FRMNUM=CLECUR1 & FRMFLG=1
+ If NOL<MAXLIG
+  If NOL=0 & [F:PYH]STAFLG(5)=2 : [M]FICBAN=1 : Endif
+  nolign=NOL+1 : [M]=[F:PYH] : Gosub SET_LIG
+  I=0
+  If NOL>0
+   I=find([F:PYH]FCY,[M]FCY(0..NOL-1))
+   If I : [M]SAI(NOL)=[M]SAI(I-1) : Endif
+  Endif
+  If I<1
+   Call DROITSITEF("GESPAY",[F:PYH]FCY,[L]AUZFCY,I) From CPTSUB
+   [M]SAI(NOL)=(I & instr(1,[L]AUZFCY,"M"))
+  Endif
+ Endif
+ If [M]CHQTYP<>0 & [M]CHQTYP<>[F:PYH]CHQTYP : [M]CHQTYP=0 : Endif
+ NOL+=1
+Next : # [PYH]
+If NOL>MAXLIG : [M]NBLIG=MAXLIG : PLEIN=1
+Else          : [M]NBLIG=NOL
+Endif
+
+# Rafraichir le tiroir ouvert
+Gosub RAF_TIROIR
+
+# Localization Switzerland, 2015-07-27 Bader
+If dim(GSWIPAYBVR) > 0 : GSWIPAYBVR = int(val(func AFNC.PARAM("SWIPAYBVR", [F:FRM]CPY))) : Endif
+# End Localization Switzerland
+# Issue 120556 - 2018-12-20 by RMA
+If dim(GEXETAX) > 0 : GEXETAX = func AFNC.PARAM("EXETAX", [F:FRM]CPY) : Endif
+
+Gosub LOAD_WL_STATUS
+
+Gosub LOAD_PAYMENT_APPROVAL     # Issue X3-211468, X3-211469 by MAPON
+
+Return
+
+$FIN
+Return
+
+$RAF_LOTS
+#---------------------------------------------------------#
+# Ce sous-prog. rafraichit le tiroir "Lot de saisie"      #
+# Si [M]CPY ou [M]PAYTYP ne sont pas saisis => liste vide #
+#---------------------------------------------------------#
+If [M]CPY<>"" & [M]PAYTYP<>""
+ LOTCRIT = "[PYL]CPY='"+[M]CPY+"' & [PYL]PAYTYP='"+[M]PAYTYP+"'"
+ If dim([F:PYL]STA)>0
+  LOTCRIT+="& [PYL]STA<>5"
+ Endif
+Else
+ LOTCRIT="[PYL]COD<>[PYL]COD" # => Liste vide
+Endif
+If LOTCRIT<>OLOTCRIT
+ OLOTCRIT = LOTCRIT
+ ILIS = ILISPYL
+ If ILISPYL
+  PROGOBJL="WOPYL"
+  currbox = "GAU_CHE"+num$(ILIS)
+  Gosub REMP_LISGAU From GOBJSUB
+ Endif
+Endif
+Return
+
+$RAF_REGS
+#---------------------------------------------------------#
+# Ce sous-prog. rafraichit le tiroir "Règlements"         #
+# Si [M]CPY ou [M]PAYTYP ne sont pas saisis => liste vide #
+#---------------------------------------------------------#
+If [M]CPY<>"" & [M]PAYTYP<>""
+ REGCRIT = "CPY='"+[M]CPY+"' & PAYTYP='"+[M]PAYTYP+"' & (BAN='"+[M]BAN+"' | BAN='')"
+ REGCRIT -= "& STA<8 & FRMNUM=''"
+ If [F:TPY]STA3=2    : STAT=2
+ Elsif [F:TPY]STA2=2 : STAT=1
+ Else                : STAT=0
+ Endif
+ If STAT : REGCRIT -= " & STA>"+num$(STAT) : Endif
+ If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]EPACDTTRF=2 & [F:TPY]SNS=2 & [M]NUM(0)<>''
+  REGCRIT -= "& UMRSEQ='"+[M]UMRSEQ(0)+"'"
+  REGCRIT -= "& DUDDAT=["+format$(GFMD,[M]DUDDAT(0))+"]"
+ Endif
+Else
+ REGCRIT="[PYH]NUM<>[PYH]NUM" # => Liste vide
+Endif
+If REGCRIT<>OREGCRIT
+ OREGCRIT = REGCRIT
+ ILIS = ILISPAY
+ If ILIS
+  PROGOBJL = "WO"+OBJLIS(ILIS)  :# = "GESPAY"
+  currbox = "GAU_CHE"+num$(ILIS)
+  Gosub REMP_LISGAU From GOBJSUB
+ Endif
+Endif
+Return
+
+$FILGAUCHE
+If ILIS
+ Case ILIS
+  When ILISPYL   # Liste des Lots de saisie
+   FILGAUSUP(0)=LOTCRIT
+  When ILISPAY   # Liste des Règlements
+   FILGAUSUP(0)=REGCRIT
+ Endcase
+Endif
+Return
+
+$GAUCHE
+Case currbox
+ When "GAU_CHE"+num$(ILISPYL)    :# Clic dans tiroir Lots de saisie
+  Gosub OK_MODIF : If !OK : Return : Endif
+  Call TRANS_REGLOT(OK)
+  If OK & CLECUR & GREP<>"M"
+   Gosub ENTRE_MODIF From GOBJSUB
+  Endif
+ When "GAU_CHE"+num$(ILISPAY)    :# Clic dans tiroir Règlements
+  If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]EPACDTTRF=2 & [F:TPY]SNS=2 & [M]NBLIG=0
+   REFLIST = 1
+  Endif
+  Gosub OK_MODIF : If !OK : Return : Endif
+  Call TRANS_REGLT(OK)
+  If OK & REFLIST=1
+   Gosub RAF_TIROIR
+   Raz REFLIST
+  Endif
+  If OK & CLECUR & GREP<>"M"
+   Gosub ENTRE_MODIF From GOBJSUB
+  Endif
+  Gosub CHECK_PAYMENT_APPROVAL    # Issue X3-211468 by MAPON
+Endcase
+Return
+
+$TIROIR
+Gosub RAF_TIROIR
+Return
+
+$RAF_TIROIR
+Case currbox
+ When "GAU_CHE"+num$(ILISPYL) :   # Tiroir Lots de saisie
+  Gosub RAF_LOTS
+ When "GAU_CHE"+num$(ILISPAY) :   # Tiroir Règlements
+  Gosub RAF_REGS
+Endcase
+Return
+
+$OK_MODIF
+OK=1
+If GREP="" & CLECUR : # A-t-on droit à la modification ?
+ If !ACTMOD : OK=0
+ Elsif !VERROU
+  Gosub VERROU From GOBJET
+  If !VERROU
+   GERR=1 : GMESSAGE=mess(10,100,1) : OK=0 : Return
+  Else
+   AFFICHE=0 : Gosub RELIT From GOBJSUB
+   Gosub SETBOUT From GOBJSUB
+   If !ACTMOD : OK=0 : Endif
+  Endif
+ Endif
+ If !OK : # Modification impossible
+  GERR=1 : GMESSAGE = mess(9,123,1) : Return
+ Endif
+Endif
+Return
+
+Subprog TRANS_REGLOT(OK)
+#-------------------------------------------------------#
+# Ce sous-prog. transfert les reglements du lots clique #
+# en liste gauche vers les lignes du bordereau          #
+#-------------------------------------------------------#
+Variable Integer OK
+Local Integer SAVNBLIG
+SAVNBLIG=[M]NBLIG
+For [PYH]PYH2 Where PAYLOT=[F:PYL]COD
+ If [M]NBLIG>=dim([M]NUM) : Break : Endif
+ GMESSAGE=""
+ Call VERIF_REG([F:PYH]NUM,0)
+ If GMESSAGE<>"" : Break : Endif
+Next
+If GMESSAGE<>"" : GERR=1 : End : Endif
+mkstat=0 : GMESSAGE=""
+OK=([M]NBLIG>SAVNBLIG) : # Des reglements ont ete transferes vers le bordereau
+End
+
+Subprog TRANS_REGLT(OK)
+#-------------------------------------------------------#
+# Ce sous-prog. transfert le règlement choisi           #
+# en liste gauche vers les lignes du bordereau          #
+#-------------------------------------------------------#
+Variable Integer OK
+Local Integer SAVNBLIG
+SAVNBLIG=[M]NBLIG
+If [M]NBLIG=dim([M]NUM) : OK=0 : End : Endif
+GMESSAGE=""
+Call VERIF_REG([F:PYH]NUM,2)
+If GMESSAGE<>"" : GERR=1 : End : Endif
+mkstat=0 : GMESSAGE=""
+OK=([M]NBLIG>SAVNBLIG)
+End
+
+$SET_LIG
+Local Char PLAN(GLONCOA)
+Call SETMAINREF([F:PYH]CPY,GTYPGEN,GTYPANA) From CPTDIV
+Call LECPLAN([F:PYH]CPY,GTYPGEN,PLAN) From CPTDIV
+If [F:PYH]BPANAM<>""
+ [M]PYHNAM(NOL)=[F:PYH]BPANAM
+Elsif [F:PYH]BPR<>""
+ Call LEC_BPR([F:PYH]BPR) From CPTLEC
+ If fstat<=2 : [M]PYHNAM(NOL)=[F:BPR]BPRNAM : Endif
+Elsif [F:PYH]ACC<>""
+ Call LEC_GAC([F:PYH]ACC, PLAN) From CPTLEC
+ If fstat<=2
+  Call LECTEXTRA([M]PYHNAM(NOL),"GACCOUNT","DESTRA",[F:GAC]COA,[F:GAC]ACC) From ATEXTRA
+ Endif
+Endif
+If [F:TPY]SNS<3
+ If [F:PYH]SNS=[F:TPY]SNS : SIGN=1 : Else : SIGN=-1 : Endif
+Elsif [F:PYH]SNS=1 : SIGN=-1 : # Dépense
+Else               : SIGN=1  : # Recette
+Endif
+
+[M]AMTCUR(NOL)=[F:PYH]AMTCUR*SIGN
+If [F:PYH]CUR=[M]CURCPY
+ MONTANT=[F:PYH]AMTCUR*SIGN
+Elsif [M]CURBAN=[M]CURCPY & [F:PYH]AMTBAN<>0
+ If [F:BAN]CHGDAT=[0/0/0] | ([F:PYH]ACCDAT>=[F:BAN]CHGDAT & [F:BAN]CUR=[M]CURCPY) | [F:BAN]OLDCUR=""
+  MONTANT=[F:PYH]AMTBAN*SIGN
+ Else
+  Call CONVERT([F:PYH]CUR,[M]CURCPY,[M]CURCPY,[F:TPY]RATTYP,[F:PYH]ACCDAT
+&             ,[F:PYH]AMTBAN*SIGN,MONTANT,STAT) From TRTDEV
+  If STAT : # Pas de cours de devises CUR -> [M]CURCPY (ACCDAT)
+   Call ERREUR(mess(16,114,1)-[F:PYH]CUR-"->"-[M]CURCPY-"("+format$("D:"+GFMDAT,[F:PYH]ACCDAT)+")") From GESECRAN
+   MONTANT=0
+  Endif
+ Endif
+Else
+ Call CONVERT([F:PYH]CUR,[M]CURCPY,[M]CURCPY,[F:TPY]RATTYP,[F:PYH]ACCDAT
+&             ,[F:PYH]AMTCUR*SIGN,MONTANT,STAT) From TRTDEV
+ If STAT : # Pas de cours de devises CUR -> CURCPY (ACCDAT)
+  Call ERREUR(mess(27,117,1)-[F:PYH]NUM+"\"+mess(16,114,1)-[F:PYH]CUR-"->"
+&            -CURCPY-"("+format$("D:"+GFMDAT,[F:PYH]ACCDAT)-")") From GESECRAN
+  MONTANT=0
+ Endif
+Endif
+[M]AMTLOC0(NOL)=MONTANT
+[M]TOTLOC+=MONTANT
+
+If [M]CURBAN<>[M]CURCPY
+ If [F:PYH]CUR=[M]CURBAN
+  MONTANT=[F:PYH]AMTCUR*SIGN
+ Elsif [F:PYH]AMTBAN<>0
+  If [F:BAN]CHGDAT=[0/0/0] | ([F:PYH]ACCDAT>=[F:BAN]CHGDAT & [F:BAN]CUR=[M]CURBAN) | [F:BAN]OLDCUR=""
+   MONTANT=[F:PYH]AMTBAN*SIGN
+  Else
+   Call CONVERT([F:PYH]CUR,[M]CURBAN,[M]CURCPY,[F:TPY]RATTYP,[F:PYH]ACCDAT
+&              ,[F:PYH]AMTBAN*SIGN,MONTANT,STAT) From TRTDEV
+   If STAT : # Pas de cours de devises CUR -> [M]CURBAN (ACCDAT)
+    Call ERREUR(mess(16,114,1)-[F:PYH]CUR-"->"-[M]CURBAN-"("+format$("D:"+GFMDAT,[F:PYH]ACCDAT)+")") From GESECRAN
+    MONTANT=0
+   Endif
+  Endif
+ Else
+  Call CONVERT([F:PYH]CUR,[M]CURBAN,[M]CURCPY,[F:TPY]RATTYP,[F:PYH]ACCDAT
+&             ,[F:PYH]AMTCUR*SIGN,MONTANT,STAT) From TRTDEV
+  If STAT : # Pas de cours de devises CUR -> CURBAN (ACCDAT)
+   Call ERREUR(mess(27,117,1)-[F:PYH]NUM+"\"+mess(16,114,1)-[F:PYH]CUR-"->"
+&             -[M]CURBAN-"("+format$("D:"+GFMDAT,[F:PYH]ACCDAT)-")") From GESECRAN
+   MONTANT=0
+  Endif
+ Endif
+ [M]AMTBAN0(NOL)=MONTANT
+ [M]TOTBAN+=MONTANT
+Else
+ [M]TOTBAN = [M]TOTLOC
+Endif
+Return
+
+$RAZDUP
+Effzo [FRM1]
+[M]STA=5
+Affzo [FRM0] STA2
+Grizo [FRM0] FRMNUM
+Return
+
+$RAZCRE
+[M]FRMTYP=0 : [M]CHQTYP=0 : [M]STA=5
+Affzo [FRM0] STA2
+Grizo [FRM0] FRMNUM
+Gosub RAF_TIROIR
+Return
+
+$ABANDON
+If [L]PYHNUM_RMV <> ""      # Issue X3-225006 by MAPON
+  Gosub ADD_BACK_REMOVED_UNAPPROVED_PAYMENTS From FRMPAYAPP # Issue X3-218095
+Endif
+Case REP
+ When "D", "C"
+  Actzo [FRM0] FRMNUM
+Endcase
+Return
+
+$APRES_MODIF
+If find(REP,"M","C","D")
+ Gosub AVANT_MOD
+Endif
+Return
+
+$AVANT_MOD
+If find(COUZON,"FRMFCY","BAN","PAYTYP") or (dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]EPACDTTRF=2 & [F:TPY]SNS=2 & COUZON="NUM" & [M]NBLIG=0)
+ Assign "[M]"+COUZON With CZ        # zc, inutilisé en WEB, correction CP (16/01/02)
+ Gosub RAF_TIROIR
+Endif
+Return
+
+$EFFMASK
+Return
+
+$VERIF_CRE
+$VERIF_MOD
+If [M]NBLIG=0
+ GERR=1 : GMESSAGE = mess(178,123,1) : # Il doit y avoir au moins 1 ligne
+ OK=0 : Return
+Endif
+Return
+
+$FERME
+
+If dim([V]GKPL_ACTIVE_MR)>0 : Kill GKPL_ACTIVE_MR : Endif
+# Issue X3-222662 by MAPON
+If dim([V]POST_BUTTON)>0              : Kill [V]POST_BUTTON              : Endif
+If dim([V]BANK_FILE_BUTTON)>0         : Kill [V]BANK_FILE_BUTTON         : Endif
+If dim([V]APPROVE_ALL_BUTTON)>0       : Kill [V]APPROVE_ALL_BUTTON       : Endif
+If dim([V]REMOVE_UNAPPROVED_BUTTON)>0 : Kill [V]REMOVE_UNAPPROVED_BUTTON : Endif
+# Issue X3-222662 end
+
+Return
+
+$INICRE
+Gosub INIMOD
+COMPTREG = ""
+GSOCIETE = [M]CPY
+Call LECTCA(3,OKTCA)From SUBTCA
+If OKTCA : COMPTREG = [F:TCA]CODNUM(2) : Endif
+If COMPTREG="" : COMPTREG = "PY5" : Endif
+Call NUMERO(COMPTREG,[M]FRMFCY,datesyst,[M]PAYTYP,[F:FRM]FRMNUM,STAT) From SUBANM
+If STAT
+ # Problème lors de la récupération du compteur
+ Gosub MESSAGE From SUBANM
+ GMESSAGE=mess(104,117,1)-"("+COMPTREG+") : "+MESSA
+ GERR = 1 : GOK = 0
+Endif
+Return
+
+$INIMOD
+[F:FRM]STA=5
+Return
+
+$MODIF
+Gosub DELLIG
+If GOK>0 : Gosub CRELIG : Endif
+Return
+
+$DELLIG
+Call LEC_TPY_LEG(GCURLEG,[M:FRM0]PAYTYP) From CPTLEC
+Raz [L]NBRLOT,[L]CODLOT
+For [PYH]PYH1 Where FRMNUM=CLECUR1 & FRMFLG=1
+ If GREP="A" | !find([F:PYH]NUM,[M]NUM(0..[M]NBLIG-1))
+  Readlock [PYH]PYH1 Curr
+  If fstat=1
+   GOK=-1 : GLOCK="$PAYMENTH"-[F:PYH]NUM : Break
+  Endif
+  Call DROITSITEF("GESPAY",[F:PYH]FCY,[L]AUZFCY,I) From CPTSUB
+  If !I | !instr(1,[L]AUZFCY,"M"): # Vous n'avez pas les droits pour ce site
+   GMESSAGE = mess(27,117,1)-[F:PYH]NUM+"\"+[F:PYH]FCY-":"-mess(2,104,1)
+   GOK=0 : GERR=1 : Break
+  Endif
+  If [F:PYH]STA>7 : # Règlement NUM - Etat : #
+   GMESSAGE=mess(27,117,1)-[F:PYH]NUM+"\" +mess(9,105,1)-":"-mess([F:PYH]STA,689,1)
+   GOK=0 : GERR=1 : Break
+  Endif
+  Filter [PAN] Where TYPNUM=2 & NUM=[F:PYH]FRMNUM & RENCOD="R"+[F:PYH]NUM
+  Read [PAN]PAN0 First
+  Filter [PAN]
+  If fstat<=2
+   # Règlement comptabilisé NUM - Annulation impossible
+   GMESSAGE = mess(54,117,1)-[F:PYH]NUM+"\"+mess(49,117,1)
+   GOK=0 : GERR=1 : Break
+  Endif
+
+  Raz [F:PYH]FRMNUM, [F:PYH]FRMLIN, [F:PYH]FRMFLG, [F:PYH]FRMFCY
+  Raz [F:PYH]TFBFIL, [F:PYH]TFBDAT, [F:PYH]STAFLG(5)
+  Raz [F:PYH]FRMUSR, [F:PYH]FRMDAT
+  [F:PYH]STAFLG(4)=0  : [F:PYH]STA=1
+  For I=3 To 1 Step -1
+   If [F:PYH]STAFLG(I)<>0 : [F:PYH]STA=I+1 : Break : Endif
+  Next I
+  Rewrite [PYH]
+  If fstat
+   GOK=0 : Call FSTA("PYH") From GLOCK : Break
+  Endif
+  # SDD : Update HISTOMDT
+  If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]EPACDTTRF=2 & [F:TPY]SNS=2
+   Update [HMDT] Where PAYNUM=[F:PYH]NUM With FRMNUM=""
+   If fstat
+    GOK=0 : Call FSTA("HMDT") From GLOCK : Break
+   Endif
+  Endif
+  If dim([F:PYL]STA)>0 & [F:PYH]PAYLOT<>""
+   If !find([F:PYH]PAYLOT,[L]CODLOT(0..[L]NBRLOT))
+    [L]CODLOT([L]NBRLOT) = [F:PYH]PAYLOT
+    [L]NBRLOT+=1
+   Endif
+  Endif
+ Endif
+Next : # [PYH]
+
+If [L]NBRLOT>0
+ For I=0 To [L]NBRLOT-1
+  Update [PYL] Where [F:PYL]COD=[L]CODLOT(I) & [F:PYL]STA=5 With [F:PYL]STA=0
+  If fstat
+   GOK=0 : Call FSTA("PYL") From GLOCK : Break
+  Endif
+ Next
+Endif
+Return
+
+$CRELIG
+STAT=0 : [L]DATJ=date$
+Call LEC_TPY_LEG(GCURLEG,[M:FRM0]PAYTYP) From CPTLEC
+Raz [L]NBRLOT,[L]CODLOT
+For NOL=0 To [M]NBLIG-1
+ GERR=0
+ Readlock [PYH]PYH0 = [M]NUM(NOL)
+ If fstat=1
+  GOK=-1 : GLOCK="$PAYMENTH"-[F:PYH]NUM : Break
+ Elsif [F:PYH]STA>7 : # Règlement NUM - Etat : #
+  GMESSAGE=mess(9,105,1)-":"-mess([F:PYH]STA,689,1) : GERR=1
+ Elsif [F:PYH]BAN<>"" & [F:PYH]BAN<>[M]BAN : # Banque
+  GMESSAGE = mess([F:TPY]BANCSH,653,1)-[F:PYH]BAN : GERR=1
+ Elsif [F:PYH]CPY<>[M]CPY : # Société
+  GMESSAGE = mess(2,116,1)-[F:PYH]CPY : GERR=1
+ Elsif [M]CHQTYP<>0 & [F:PYH]CHQTYP<>[M]CHQTYP
+  GMESSAGE = mess(454,200,1)+"<>"+mess([M]CHQTYP,654,1) : GERR=1
+ Elsif [F:TPY]EPACDTTRF=2 & [F:PYH]DUDDAT<>[M]DUDDAT
+ #06-05-2022.001.ini AUREN eliminación control fechas vencimiento por remesas
+ # GMESSAGE = mess(15,105,1)-format$("D:"+GFMDAT,[F:PYH]DUDDAT) : GERR=1
+ #06-05-2022.001.fin
+ Endif
+ If GERR
+  GMESSAGE=mess(27,117,1)-[F:PYH]NUM+"\"+GMESSAGE
+  GOK=0 : Break
+ Endif
+ If !find([F:PYH]FRMNUM,"",CLECUR1) : OLDFRM=[F:PYH]FRMNUM
+  Lock ="FRM"+OLDFRM+"\1"
+  If fstat
+   GOK=-1 : GLOCK="%"+"FRM"+OLDFRM+"\1" : Break
+  Else
+   Call DROITSITE([F:PYH]FRMFCY,[L]AUZFCY,K) From CPTSUB
+   If K & (!instr(1,[L]AUZFCY,"M") | !instr(1,[L]AUZFCY,"S")) : K=0
+   Else
+    Filter [PAN] Where TYPNUM=1 & NUM=[F:PYH]FRMNUM & RENCOD="R"+[F:PYH]NUM
+    Read [PAN]PAN0 First
+    Filter [PAN]
+    If fstat<=2 : K=0 : Endif
+   Endif
+   If !K
+    GOK=0 : GERR=1 : # Règlement sur le bordereau de remise X
+    GMESSAGE = [F:PYH]NUM-":"-mess(114,117,1)-OLDFRM : Break
+   Endif
+  Endif
+ Else OLDFRM=""
+ Endif
+ DCRE=[F:PYH]CREDAT : DMOD=[F:PYH]UPDDAT : UCRE=[F:PYH]CREUSR : UMOD=[F:PYH]UPDUSR
+ WCREDATTIM=[F:PYH]CREDATTIM : # FQ122537
+ # affectation banque au règlement lors de la remise sur bordereau
+ If [F:PYH]BAN=""
+  [F:PYH]BAN = [M]BAN
+  Gosub MAJBAN_PYH
+  If GOK<1 : GERR=1 : Break : Endif
+  SIGN=1
+  Gosub MAJBAN From SUBPAY3
+  If GOK<1 : GERR=1 : Break : Endif
+ Endif
+ [F:PYH] = [F:FRM]
+ [F:PYH]CREDAT=DCRE : [F:PYH]UPDDAT=DMOD : [F:PYH]CREUSR=UCRE : [F:PYH]UPDUSR=UMOD
+ [F:PYH]CREDATTIM=WCREDATTIM : # FQ122537
+ If dim([F:FRM]UPDDAT)>0 & [F:FRM]UPDDAT<>[0/0/0] : [F:PYH]FRMDAT=[F:FRM]UPDDAT
+ Elsif dim([F:FRM]CREDAT)>0                       : [F:PYH]FRMDAT=[F:FRM]CREDAT
+ Else [F:PYH]FRMDAT=[L]DATJ
+ Endif
+ If dim([F:FRM]UPDUSR)>0 & [F:FRM]UPDUSR<>"" : [F:PYH]FRMUSR=[F:FRM]UPDUSR
+ Elsif dim([F:FRM]CREUSR)>0                  : [F:PYH]FRMUSR=[F:FRM]CREUSR
+ Else [F:PYH]FRMUSR=GUSER
+ Endif
+ [F:PYH]FRMLIN=NOL+1 : [F:PYH]STAFLG(4)=2 : [F:PYH]STAFLG(5)=0
+# X3-236132 2021-02-23 Bader begin make sure [F:PYH] and [m:frm1] get the correct bank file name assigned if remittance splitting is active
+ If [M:FRM0]FICBAN = 1 Gosub HANDLE_BANK_FILE Endif # if bank file has already been assigned to remittance, make sure every included payment has the correct bank file assigned
+# X3-236132 2021-02-23 Bader end
+ GPOINT = "PYH" : Gosub ENTREE From EXEFNC
+ Rewrite [PYH]
+ If fstat
+  GOK=0 : Call FSTA("PYH") From GLOCK : Break
+ Endif
+
+ # SDD : Update HISTOMDT
+ If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]EPACDTTRF=2 & [F:TPY]SNS=2
+  Update [HMDT] Where PAYNUM=[F:PYH]NUM With FRMNUM=[F:PYH]FRMNUM
+  If fstat
+   GOK=0 : Call FSTA("HMDT") From GLOCK : Break
+  Endif
+ Endif
+ If dim([F:PYL]STA)>0 & [F:PYH]PAYLOT<>""
+  If !find([F:PYH]PAYLOT,[L]CODLOT(0..[L]NBRLOT))
+   [L]CODLOT([L]NBRLOT) = [F:PYH]PAYLOT
+   [L]NBRLOT+=1
+  Endif
+ Endif
+
+ If OLDFRM<>""
+  Read [PYH]PYH1(2) = 1;OLDFRM
+  If fstat
+   STAT=1
+   Delete [FRM]FRM0 = 1;OLDFRM
+   If fstat=1
+    GOK=-1 : GLOCK="$PAYFRM 1"-OLDFRM : Break
+   Elsif fstat>5
+    GOK=0 : Call RSTA("FRM","1"-OLDFRM) From GLOCK : Break
+   Endif
+  Endif
+ Endif
+Next NOL
+
+If [L]NBRLOT>0
+ For I=0 To [L]NBRLOT-1
+  [L]STALOT = func SUBPAY5.CALSTAPYL([L]CODLOT(I))
+  If [L]STALOT>0
+   Update [PYL] Where  [F:PYL]COD=[L]CODLOT(I) & [F:PYL]STA=0 With [F:PYL]STA=[L]STALOT
+   If fstat
+    GOK=0 : Call FSTA("PYL") From GLOCK : Break
+   Endif
+  Endif
+ Next
+Endif
+
+If STAT
+ Call LEC_FRM(1, CLECUR1) From CPTLEC
+Endif
+Return
+
+# X3-236132 2021-02-23 Bader begin
+# Makes sure that in case of a change of an existing remittance, for which the bank file had been created before,
+# the correct bank file is assigned to all lines (might be different for different payments with different values for the active splitting criteria).
+# If at least one of the values for an active splitting criterion cannot be found in grid > leave bank file empty, because for this payment we need
+# to create a new bank file
+$HANDLE_BANK_FILE
+If [M:FRM0]FICBAN = 1                           # we only have to do something if a bank file has already been created
+  Local Integer CUR_FOUND, DUD_FOUND, PAM_FOUND # flags to indicate whether value for splitting criterion is same as actual line
+  For I=0 To [M:FRM1]NBLIG-1                    # find line with same splitting criteria and take bank file from this line
+    [L]CUR_FOUND = [M:FRM1]TFBFIL(I) <> ""      # set to 1 if bank file is already assigned
+    If [F:TPY]GRPCUR = [V]CST_AYES              # splitting by currency active in TPY?
+      If [M:FRM1]CUR(I) <> [M:FRM1]CUR(NOL) Raz [L]CUR_FOUND Endif # if yes, reset to zero if values different
+    Endif
+    [L]DUD_FOUND = [M:FRM1]TFBFIL(I) <> ""      # set to 1 if bank file is already assigned
+    If [F:TPY]GRPDUD = [V]CST_AYES              # splitting by due date active in TPY?
+      If [M:FRM1]DUDDAT(I) <> [M:FRM1]DUDDAT(NOL) Raz [L]DUD_FOUND Endif # if yes, reset to zero if values different
+    Endif
+    [L]PAM_FOUND = [M:FRM1]TFBFIL(I) <> ""      # set to 1 if bank file is already assigned
+    If [F:TPY]GRPPAM = [V]CST_AYES              # splitting by payment method active in TPY?
+      If [M:FRM1]PAM(I) <> [M:FRM1]PAM(NOL) Raz [L]PAM_FOUND Endif # if yes, reset to zero if values different
+    Endif
+    # if no splitting criteria in TPY: break if line has a bank file assigned
+    # if at least 1 splitting criterion in TPY: break if line has a bank file assigned and for all active splitting criteria values are identical
+    # if we break here, we found a line from which we can take the bank file
+    If [L]CUR_FOUND and [L]DUD_FOUND and [L]PAM_FOUND
+      Break
+    Endif
+  Next
+  If [L]CUR_FOUND and [L]DUD_FOUND and [L]PAM_FOUND   # if a line with a valid bank file has been found in loop before > take bank file
+    [F:PYH]TFBFIL = [M:FRM1]TFBFIL(I)
+    [M:FRM1]TFBFIL(NOL) = [M:FRM1]TFBFIL(I)
+    If [F:FRM]TFBFIL = ""                             # if bank file name is empty on remittance header (when a payment has been added in the first line of the grid)
+      Read [F:FRM]FRM0 = [F:FRM]FRMFLG;[F:FRM]FRMNUM  # re-read remittance
+      [F:FRM]TFBFIL = [F:PYH]TFBFIL                   # write bank file to remittance header
+      Rewrite [F:FRM]                                 # update remittance header
+    Endif
+    Affzo  [M:FRM1]1-99
+  Else                    # no line found with identical values for all active splitting criteria > keep bank file empty
+    [F:PYH]TFBFIL = ""
+    [M:FRM1]TFBFIL(NOL) = ""
+  Endif
+Endif
+Return
+# X3-236132 2021-02-23 Bader end
+
+
+$MAJBAN_PYH
+Call LEC_CPY([F:PYH]CPY) From CPTLEC
+Call LEC_TPY_LEG(GCURLEG,[F:PYH]PAYTYP) From CPTLEC
+Call LEC_BAN([F:PYH]BAN) From CPTLEC
+Call SETCUR(1,[F:PYH]CPY,[L]RTZCUR) From CPTDIV
+# Détermination de AMTBAN
+If [F:PYH]CUR=[F:BAN]CUR
+ [F:PYH]AMTBAN=[F:PYH]AMTCUR
+Else
+ Call LEC_TCU([F:BAN]CUR) From CPTLEC
+ If [F:TCU]EURFLG=2 & ([F:TCU]EURDAT=[0/0/0] | [F:TCU]EURDAT<=[F:PYH]ACCDAT)
+  Call LEC_TCU([F:PYH]CUR) From CPTLEC
+  If [F:TCU]EURFLG=2 & ([F:TCU]EURDAT=[0/0/0] | [F:TCU]EURDAT<=[F:PYH]ACCDAT)
+   [F:PYH]AMTBAN=0
+  Endif
+ Endif
+Endif
+
+# Détermination de BANPAYTPY
+If [F:PYH]AMTBAN<>0
+ Call SIGN2(1,[F:PYH]SNS,0,0,0,SIGN) From PAYDIV
+ If [F:PYH]SNS=1 : SIGN*=-1 : Endif
+ [F:PYH]BANPAYTPY = SIGN*[F:PYH]AMTBAN
+Else
+ [F:PYH]BANPAYTPY=0
+Endif
+For [PYD]PYD0 Where NUM=[F:PYH]NUM
+ If ([F:PYH]AMTBAN=0 & [F:PYD]ACCTYP=1) | [F:PYD]ACCTYP=2
+  If [F:PYD]AMTLIN=0
+   [L]MT = 0
+  Elsif [F:PYH]CUR=[F:BAN]CUR & [F:PYD]ACCTYP=1
+   [L]MT = sgn([F:PYD]AMTLIN)*abs([F:PYD]AMTLIN2-[F:PYD]RITAMT2)
+  Elsif [F:PYD]CURLIN=[F:BAN]CUR
+   [L]MT = [F:PYD]AMTLIN
+  Elsif [F:PYD]DUDNUM<>0 & DEVLED=[F:BAN]CUR
+   [L]MT = sgn([F:PYD]AMTLIN)*abs([F:PYD]PAYLOCLIN)
+  Else
+   Call CONVERT([F:PYD]CURLIN,[F:BAN]CUR,DEVLED,[F:TPY]RATTYP
+&              ,[F:PYH]ACCDAT,[F:PYD]AMTLIN,[L]MT,[L]STAT) From TRTDEV
+   If [L]STAT : # Pas de cours de devises CURLIN -> CURBAN (ACCDAT)
+    GMESSAGE=mess(16,114,1)-[F:PYD]CURLIN-"->"-[F:BAN]CUR-"("+format$("D:"+GFMDAT,[F:PYH]ACCDAT)-")"
+    GOK=0 : Break
+   Endif
+  Endif
+  Call SIGN2([F:PYD]ACCSNS,[F:PYH]SNS,[F:PYD]DUDNUM,[F:PYD]DUDLIG,[F:PYD]IPTTYP,SIGN) From PAYDIV
+  If [F:PYH]SNS=1 : SIGN*=-1 : Endif
+  [F:PYH]BANPAYTPY += SIGN*[L]MT
+ Endif
+
+ If [F:PYD]RITAMT<>0
+  If [L]RTZCUR=[F:BAN]CUR
+   [L]MT = [F:PYD]RITAMT
+  Elsif [F:PYH]CUR=[F:BAN]CUR
+   [L]MT = sgn([F:PYD]RITAMT)*abs([F:PYD]RITAMT2)
+  Else
+   Call CONVERT([L]RTZCUR,[F:BAN]CUR,DEVLED,[F:TPY]RATTYP
+&              ,[F:PYH]ACCDAT,[F:PYD]RITAMT,[L]MT,[L]STAT) From TRTDEV
+   If STAT : # Pas de cours de devises RTZCUR -> CURBAN (ACCDAT)
+    GMESSAGE=mess(16,114,1)-[L]RTZCUR-"->"-[F:BAN]CUR-"("+format$("D:"+GFMDAT,[F:PYH]ACCDAT)-")"
+    GOK=0 : Break
+   Endif
+  Endif
+  Call LECTURE("PIH",[F:PYD]VCRNUM,"") From CONTOBJ
+  If find([F:PIH]INVTYP,2,4) : J=3 : Else : J=2 : Endif
+  Call SIGN2(J,[F:PYH]SNS,0,0,0,SIGN) From PAYDIV
+  If [F:PYH]SNS=1 : SIGN*=-1 : Endif
+  [F:PYH]BANPAYTPY += SIGN*[L]MT
+ Endif
+Next : # [PYD]
+Return
+
+$APRES_CRE
+[M:FRM0]FRMNUM=CLECUR1 : Affzo [FRM0]FRMNUM : Actzo [FRM0]FRMNUM
+Return
+
+$APRES_MOD
+[M:FRM0]=[F:FRM] : Affzo [FRM0]
+Gosub LOAD_WL_STATUS
+Raz [L]PYHNUM_RMV   # Issue X3-225006 by MAPON
+Return
+
+$VERF_ANU
+Read [PAN]PAN0(2) = 1;[L]CODE
+If fstat<=2
+ # Bordereau comptabilisé - Suppression impossible
+ GERR=1 : GMESSAGE = mess(131,117,1)+"\"+mess(54,123,1)
+ OK=0 : Return
+Endif
+Return
+
+$AV_ANNULE
+Call AV_ANNULE2([L]CODE)
+Return
+
+Subprog AV_ANNULE2(CLECUR1)
+Value Char CLECUR1()
+Local Integer I, ERR
+Local Char AUZFCY(20)
+Local Char    CODLOT(GLONVCR)(0..max(1,dim([M]NUM)))
+Local Integer NBRLOT
+Onerrgo ERREUR From CONTROLE
+Local File PAYMENTH [PYH]
+Onerrgo
+If GERREUR : GERREUR=0 : GOK=0 : End : Endif
+GREP="A"
+Gosub DELLIG
+GREP=""
+End
+
+$SETBOUT
+If CLECUR
+ If GUSRFCY(1)="\"
+  I = 1
+ Else
+  I = find([M]FRMFCY,GUSRFCY(1..GNBAUZ))
+ Endif
+Endif
+VIROPT="H"
+If CLECUR & ([M]STA>=8 | PLEIN)
+ VIROPT+="MA"
+Elsif CLECUR & find(0,[M]SAI(0..[M]NBLIG-1))
+ VIROPT+="A"
+Endif
+Call LEC_TPY_LEG(GCURLEG,[M:FRM0]PAYTYP) From CPTLEC
+Call LEC_TED(GCURLEG,[F:TPY]CODEDT) From CPTLEC
+If !fstat : [L]TYPREG = [F:TED]TRT : Else [L]TYPREG="" : Endif
+If CLECUR & TYPREG<>"" & instr(1,EDICOD,"\"+TYPREG)
+ REPORT1 = "BORREM"+[L]TYPREG
+ If !instr(1,CHAINE,"E") : CHAINE +="E" : Endif
+Else
+ VIROPT+="E"
+Endif
+If !CLECUR | REP<>"" | I<1 | !instr(1,GUSRAUZ(I),"V")
+&   | !(([M]STA<8 & [F:TPY]STA8=2) | ([M]STA<9 & [F:TPY]STA9=2)) | [M:FRM0]APPSTA <> 1     # Issue X3-211468 by MAPON
+ VIROPT+="V"
+Else
+ Enable [V]POST_BUTTON    # Issue X3-222662 by MAPON
+Endif
+# Bug 12208 : Point d'entrée pour gestion du bouton Fichier banque
+[L]GENFIC=1
+GPOINT = "BOUTON" : Gosub ENTREE From EXEFNC
+
+# Ajout vérif EPACDTTRF
+If !CLECUR | REP<>"" | I<1 | !instr(1,GUSRAUZ(I),"F") | ([F:TPY]STA6<>2 & [F:TPY]EPACDTTRF<>2) | ![L]GENFIC
+&   | [M:FRM0]APPSTA <> 1     # Issue X3-211468 by MAPON
+ VIROPT+="B"
+Else
+ CHMEN +="5"    :#Date d'exécution
+ Enable [V]BANK_FILE_BUTTON   # Issue X3-222662 by MAPON
+Endif
+If !CLECUR or REP<>""
+ VIROPT+="U"
+Endif
+If [V]GKPL_ACTIVE_MR = 1 & GREP=""
+  CHMEN+="6"
+Endif
+
+# X3-202659 2020-06-30 Bader begin remittance grouping
+Call VIREBOUT(CHAINE,"7") From GOBJET
+If GREP <> "C" and func CHECK_GROUP_TFB() = [V]CST_AYES
+  CHMEN += "7"
+Endif
+# X3-202659 2020-06-30 Bader end
+
+#issue X3-211473 X3-218095 by MNO
+If VERROU=1 and [F:TPY]PAYAPP=[V]CST_AYES and !find(GREP,"C","M","D") and !find(REP,"C","M","D") and [M:FRM0]APPSTA<>1 and [M:FRM1]NBLIG<>0
+  CHMEN+="48"
+Else
+  Disable [V]APPROVE_ALL_BUTTON, [V]REMOVE_UNAPPROVED_BUTTON      # Issue X3-222662 by MAPON
+Endif
+#issue X3-211473 X3-218095 end
+
+
+Call VIREBOUT(CHAINE,VIROPT) From GOBJET
+
+# Pièce
+If CLECUR & GTUNCPT(5)=0 & GREP<>"C" & GREP<>"D" :  CHMEN += "1"  : Endif
+
+# Transaction
+If CLECUR  & I>=1 & instr(1,GUSRAUZ(I),"T") : CHMEN +="3"  : Endif
+
+# suppression des boutons : supprimer, enregistrer, créer + interdiction de duplication
+If MONOCPY : Call VIREBOUT(CHAINE,"AMCD") From GOBJET : Endif
+
+Raz GMESSAGE
+Return
+
+
+# X3-202659 2020-06-30 Bader begin remittance grouping
+# Reads the bank file definition linked to the payment entry type (if one is linked) and returns the flag FRMGRP
+# which controls if a remittance grouping is allowed or not.
+# [F:TPY] holds the correct payment entry type
+Funprog CHECK_GROUP_TFB()
+If [F:FRM]FRMGRP = "" and [M:FRM0]FICBAN = 1 End [V]CST_ANO Endif   # no grouping button if slip on file and no remittance group assigned
+If !clalev([F:TFB]) Local File TABFILBAN [TFB] Endif
+# Condition with FILREF6 (ETEBAC)
+If [F:TPY]FILREF6<>"" & [F:TPY]FILREF8="" & [F:TPY]FILREF71=""
+  Read [TFB]TFB0(5) = [F:TPY]FILREF6;[F:FRM]BAN;1;0;[F:CPY]LEG
+  If fstat
+    Read [TFB]TFB0(5) = [F:TPY]FILREF6;[F:FRM]BAN;1;0;""
+    If fstat
+      Read [TFB]TFB0(5) = [F:TPY]FILREF6;"";1;0;[F:CPY]LEG
+      If fstat
+        Read [TFB]TFB0(5) = [F:TPY]FILREF6;"";1;0;""
+        If fstat : End [V]CST_ANO : Endif
+      Endif
+    Endif
+  Endif
+  End [F:TFB]FRMGRP
+Endif
+
+# Condition with FILREF8 (SEPA)
+If [F:TPY]FILREF6="" & [F:TPY]FILREF8<>"" & [F:TPY]FILREF71=""
+  Read [TFB]TFB0(5) = [F:TPY]FILREF8;[F:FRM]BAN;1;0;[F:CPY]LEG
+  If fstat
+    Read [TFB]TFB0(5) = [F:TPY]FILREF8;[F:FRM]BAN;1;0;""
+    If fstat
+      Read [TFB]TFB0(5) = [F:TPY]FILREF8;"";1;0;[F:CPY]LEG
+      If fstat
+        Read [TFB]TFB0(5) = [F:TPY]FILREF8;"";1;0;""
+        If fstat : End [V]CST_ANO : Endif
+      Endif
+    Endif
+  Endif
+  End [F:TFB]FRMGRP
+Endif
+End [V]CST_ANO
+# X3-202659 2020-06-30 Bader end
+
+
+$AVANTBOUT
+Case BOUT
+ When "B"
+  # Coordonnées bancaires du compte émetteur obligatoires
+  Call LEC_BAN([M:FRM0]BAN) From CPTLEC
+  If [F:BAN]BIDNUM=""
+   # Coordonnées bancaires inexistantes, génération du fichier impossible
+   GMESSAGE = [F:BAN]BAN-mess(154,121,1)
+   GERR = 1 : Return
+  Endif
+  # Point d'entrée pour personnalisation du répertoire GDIRBQE
+  SAVDIRBQE = GDIRBQE
+  GPOINT = "FICBAN" : Gosub ENTREE From EXEFNC
+  Gosub RE_VERROU
+ When "V"
+  Gosub RE_VERROU : If !OK : Return : Endif
+  If [F:TPY]STA8=2 & [M]STA<8 : OK=8
+  Elsif [F:TPY]STA9=2 & [M]STA<9 & ([F:TPY]STA8<>2 | [M]STA=8)
+   OK=9
+   If [F:TPY]EDTFLG=2
+    If find([L]TYPREG,"CHE","TRE")
+     If [L]TYPREG="CHE" : # Chèque émis
+      Filter [PYH] Where FRMFLG=1 & FRMNUM=CLECUR1 & CHQNUM="" & SNS=1
+     Else : # Traite émise
+      Filter [PYH] Where FRMFLG=1 & FRMNUM=CLECUR1 & EDTNUM=0 & SNS=1
+     Endif
+     I=0 : For [PYH]PYH1 : I+=1 : Next : # [PYH]
+     Filter [PYH]
+     If I : # I Règlement(s) non imprimé(s)
+      GERR=1 : GMESSAGE=num$(I)-mess(71,121,1) : OK=0
+     Endif
+    Endif
+   Endif
+  Else OK=0
+  Endif
+ When "1" : # Pièce comptable
+  SAVCONS=GCONSULT
+ When "3" : # Transaction
+  SAVCONS=GCONSULT : GCONSULT=1
+ #ISSUE X3-211473, X3-218095 by MANOW
+ When "4" :
+  Gosub APPROVE_PAYMENTS From FRMPAYAPP
+ When "8" :
+  Gosub REMOVE_UNAPPROVED_PAYMENTS From FRMPAYAPP
+ #ISSUE X3-211473, X3-218095 End
+Endcase
+Return
+
+$RE_VERROU
+# on verrouille, si ce n'est pas déjà fait
+If !VERROU
+ Gosub VERROU From GOBJET
+ If !VERROU
+  # Modification en cours sur un autre poste
+  GERR=1 : GMESSAGE=mess(10,100,1) : OK=0 : Return
+ Endif
+ AFFICHE=1 : Gosub RELIT From GOBJSUB
+ Gosub SETBOUT
+ If !ACTBOU(NUMBOUT) : # Opération impossible
+  GERR=1 : GMESSAGE=mess(157,123,1) : OK=0 : Return
+ Endif
+Endif
+Return
+
+$EXEBOUT
+Case REP
+ When "B"
+  AFFICHE=1 : Gosub RELIT From GOBJSUB
+  GDIRBQE = SAVDIRBQE   : # restauration de GDIRBQE (12208)
+ When "V"
+  # On ré-ouvre les fichiers
+  Gosub OUVRE From =PROGOBJ
+  AFFICHE=1 : Gosub RELIT From GOBJSUB
+Endcase
+Return
+
+$AVANT_SUITE
+If BOUT="1" :  # Pièce comptable
+ I=instr(1,VALBOUT," ")
+ If !I
+  OK=0
+ Else
+  [L]VALC1="GAS" : [L]VALC3=left$(VALBOUT,I-1) : [L]VALC2=right$(VALBOUT,I+1)
+  GCONSULT=1
+ Endif
+Endif
+Return
+
+$STATUT
+Case BOUT
+ When "1" : # Pièce comptable
+  GCONSULT=SAVCONS
+ When "3" : # Transaction
+  GCONSULT=SAVCONS
+  If [M]PAYTYP<>[F:TPY]PAYTYP
+   Call LEC_TPY_LEG(GCURLEG,[M]PAYTYP) From CPTLEC
+  Endif
+ When "5" : # Date d'execution
+  If !clalev([F:FRM2]) : Local File PAYFRM    [FRM2] : Endif
+  GCONSULT=SAVCONS
+  Readlock [F:FRM2]FRM0=[M:FRM0]FRMFLG;[M:FRM0]FRMNUM
+  [F:FRM2]EXEDAT=[M:FRM0]EXEDAT
+  Rewrite [F:FRM2]
+  If fstat
+   GOK=0 : Call FSTA("FRM2") From GLOCK
+  Endif
+ When "6"
+  Gosub CHECK_CURR_WL_STATUS
+# X3-202659 2020-06-30 Bader begin remittance grouping
+ When "7"
+  Gosub RAFFRAICHIR From GOBJSUB
+# X3-202659 2020-06-30 Bader end
+Endcase
+Return
+
+$AV_IMPRIME
+Raz [M:FRM0]FRMDAT
+Call LEC_PYH([M]NUM(0)) From CPTLEC
+If !fstat : [M:FRM0]FRMDAT=[F:PYH]FRMDAT :  Endif
+Return
+
+###################################
+## Etiquettes écrans FRM0 & FRM1 ##
+###################################
+
+$SEL_TABLE
+Case COUZON
+ When "FRMNUM" : # No de bordereau
+  OBJET="FRM"
+  SUPP="1"
+
+ When "PAYTYP" : # Type de règlement
+  OBJET = "TPY"
+  CRITERE="STA5=2"
+
+ When "NUM" : # No de règlement
+  Local Char OFONCTION(10)
+  OGFONCTION = GFONCTION
+  If GFONCTION<>"GESPAY"
+   GFONCTION  = "GESPAY"
+   Call AUTORIS From EXEFNC
+  Endif
+  Call SELNUM(CRITERE)
+  OBJET="PAY"
+  OPTIONS="#"
+
+Endcase
+Return
+
+
+$FIN_TABLE
+Case COUZON
+ When "NUM"
+  If GFONCTION<>OGFONCTION
+   GFONCTION = OGFONCTION
+   Call AUTORIS From EXEFNC
+  Endif
+Endcase
+Return
+$SEL_LISTE
+Case COUZON
+ When "FILREF6"  : # ETEBAC
+  Raz NBTEX
+  TIT(0) = mess(122,124,1) : # Sélection Fichier
+  If clalev([F:TFB])=0 : Local File TABFILBAN [TFB] : Endif
+  If [F:TPY]NATPAY>1
+   CRITERE  = 'NATPAY=[F:TPY]NATPAY & RECTYP=1 & ORDNUM=0 & NUM=1 & (BAN="" or BAN=[M:FRM0]BAN) & (LEG="" or LEG=[F:TPY]LEG)'
+  Else
+   CRITERE  = 'RECTYP=1 & ORDNUM=0 & NUM=1 & (BAN="" or BAN=[M:FRM0]BAN) & (LEG="" or LEG=[F:TPY]LEG)'
+  Endif
+  For [TFB]TFB0 Where evalue (CRITERE)
+   If NBTEX+1>dim(TEX)-1 : Break : Endif
+   If !find([F:TFB]COD,TEX(1..NBTEX))
+    NBTEX +=1
+    TEX(NBTEX) = [F:TFB]COD
+    TEXTE(NBTEX) = format$("K:10X",[F:TFB]COD)-[F:TFB]DES-[F:TFB]BAN
+   Endif
+  Next
+
+ When "FILREF71" : # EDI
+  Raz NBTEX
+  TIT(0) = mess(122,124,1) : # Sélection Fichier
+  If clalev([F:EDP])=0 : Local File EDIPAR [EDP] : Endif
+  If [F:TPY]NATPAY>1
+   CRITERE  = 'NATPAY=[F:TPY]NATPAY & GRP=0 & ORDNUM=1 & (BAN="" or BAN=[M:FRM0]BAN)'
+  Else
+   CRITERE  = 'GRP=0 & ORDNUM=1 & (BAN="" or BAN=[M:FRM0]BAN)'
+  Endif
+  For [EDP]EDP0 Where evalue (CRITERE)
+   If NBTEX+1>dim(TEX)-1 : Break : Endif
+   If !find([F:EDP]MES,TEX(1..NBTEX))
+    NBTEX +=1
+    TEX(NBTEX) = [F:EDP]MES
+    TEXTE(NBTEX) = format$("K:10X",[F:EDP]MES)-[F:EDP]DES-[F:EDP]BAN
+   Endif
+  Next
+
+ When "FILREF8"  : # SEPA
+  Raz NBTEX
+  TIT(0) = mess(122,124,1) : # Sélection Fichier
+  If clalev([F:TFB])=0 : Local File TABFILBAN [TFB] : Endif
+  If [F:TPY]NATPAY>1
+   CRITERE  = 'NATPAY=[F:TPY]NATPAY & RECTYP=1 & ORDNUM=0 & NUM=1 & (BAN="" or BAN=[M:FRM0]BAN) & (LEG="" or LEG=[F:TPY]LEG)'
+  Else
+   CRITERE  = 'RECTYP=1 & ORDNUM=0 & NUM=1 & (BAN="" or BAN=[M:FRM0]BAN)& (LEG="" or LEG=[F:TPY]LEG)'
+  Endif
+  For [TFB]TFB0 Where evalue (CRITERE)
+   If NBTEX+1>dim(TEX)-1 : Break : Endif
+   If !find([F:TFB]COD,TEX(1..NBTEX))
+    NBTEX +=1
+    TEX(NBTEX) = [F:TFB]COD
+    TEXTE(NBTEX) = format$("K:10X",[F:TFB]COD)-[F:TFB]DES-[F:TFB]BAN
+   Endif
+  Next
+Endcase
+Return
+
+$LOAD_WL_STATUS
+
+Affzo [M:FRM1]1-99
+
+If [V]GKPL_ACTIVE_MR = 1 and [F:CPY]LEG = "POL"
+  Gosub LOAD_WL_STATUS_DECLARATIONS
+  Chgfmt [M:FRM1]WLISTA With "K:50X"
+  For I = 0 To [M:FRM1]NBLIG-1
+    Gosub LOAD_LINE_WL_STATUS
+  Next
+Else
+  If dim([M:FRM1]WLISTA) <> -1    #Issue X3-192153 by MAPON
+    For I = 0 To [M]NBLIG-1
+      Chgstl [M:FRM1]WLISTA(I) With ""
+    Next
+    Chgfmt [M:FRM1]WLISTA With "-"
+  Endif
+Endif
+
+Return
+
+$LOAD_WL_STATUS_DECLARATIONS
+
+Local Char TAX_PAYER_ID(GLONCRT), BANK_ACCOUNT_NBR(GLONBID)
+Local Char IBAN_NUM(50), CTL_NUM(50)
+Local Char BIDNUM (30), EECNUM (20), RES (255)
+Local Integer STATUSCODE, I
+Local Date CREDAT : Raz [L]CREDAT
+
+If !clalev([F:BPS1]) : Local File BPSUPPLIER  [BPS1] : Endif
+If !clalev([F:BPR1]) : Local File BPARTNER    [BPR1] : Endif
+
+RES = ""
+
+Return
+
+$LOAD_LINE_WL_STATUS
+
+If [F:PYH]NUM <> [M:FRM1]NUM(I)
+  Read [F:PYH]PYH0 = [M:FRM1]NUM(I)
+Endif
+
+Read [F:BPS1]BPS0 = [M:FRM1]BPR(I)
+Read [F:BPR1]BPR0 = [M:FRM1]BPR(I)
+If (!fstat and [F:BPR1]CRY = "PL" and [F:BPS1]WLFLG <> 2) or fstat
+  If !fstat
+    [L]EECNUM = [F:BPR1]EECNUM
+    [L]BANK_ACCOUNT_NBR = [F:PYH]BID
+    Raz [L]IBAN_NUM, [L]CTL_NUM
+    Call CRE_IBAN([L]IBAN_NUM,[F:BPR1]CRY,"",[L]BANK_ACCOUNT_NBR) From SUBBID
+    [L]CTL_NUM = mid$([L]IBAN_NUM, 3, 2)
+    [L]BANK_ACCOUNT_NBR = [L]CTL_NUM + [L]BANK_ACCOUNT_NBR
+  Endif
+  STATUSCODE = func LIBWL.CHECK_LAST_NIP_ACC_IN_DB([L]EECNUM, [L]BANK_ACCOUNT_NBR, [L]CREDAT)
+  Case STATUSCODE
+    When 1
+      Chgstl [M:FRM1]WLISTA(I) With "BACKGREEN"
+    When 2
+      Chgstl [M:FRM1]WLISTA(I) With "BACKGREY"
+      [M:FRM1]WLISTA(I) = mess(352, 7711, 1)
+    When 3
+      Chgstl [M:FRM1]WLISTA(I) With "BACKYELLOW"
+    When 4
+      Chgstl [M:FRM1]WLISTA(I) With "BACKRED"
+      [M:FRM1]WLISTA(I) = func AFNC.MES1(mess(351, 7711, 1), format$("DD2",[L]CREDAT))
+  Endcase
+  If [L]STATUSCODE = 1 or [L]STATUSCODE = 3
+    [M:FRM1]WLISTA(I) = func AFNC.MES1(mess(350, 7711, 1), format$("DD2",[L]CREDAT))
+  Endif
+Else
+  Chgstl [M:FRM1]WLISTA(I) With "NORMAL"
+  [M:FRM1]WLISTA(I) = mess(1, 3693, 1)
+Endif
+Affzo [M:FRM1]WLISTA(I)
+
+Return
+
+$CHECK_CURR_WL_STATUS
+
+If [V]GKPL_ACTIVE_MR = 1 and [F:CPY]LEG = "POL"
+Call OUVRE_TRACE(func AFNC.TEXTE(57447)) From LECFIC
+Affzo [M:FRM1]1-99
+  Gosub LOAD_WL_STATUS_DECLARATIONS
+
+  For I = 0 To [M:FRM1]NBLIG-1
+    Gosub LOAD_LINE_WL_STATUS
+    If STATUSCODE <> 1 and [F:BPR1]CRY = "PL"
+      STATUSCODE = func LIBWL.CHECK_NIP_ACC_DATE([L]EECNUM,[L]BANK_ACCOUNT_NBR, date$, RES )
+      If [L]RES = "" and [L]STATUSCODE = 0
+        [L]RES = mess(354, 7711, 1)
+      Else
+        [L]RES = func LIBWL.MESSAGE_OF_CODE(RES)
+      Endif
+      #issue X3-194177
+      If find([L]STATUSCODE,403,500) #ISSUE X3-198627
+        Call ECR_TRACE([L]RES,1) From GESECRAN
+        Break
+      Endif
+      #issue X3-194177 end
+      If [F:PYH]BID <> ""
+      Call ECR_TRACE(func AFNC.MES1(mess(353, 7711, 1), [L]BANK_ACCOUNT_NBR) -
+&                    [L]RES, ![L]STATUSCODE) From GESECRAN
+      Else
+      Call ECR_TRACE(func AFNC.MES1(mess(355, 7711, 1), [F:PYH]NUM),
+&       ![L]STATUSCODE) From GESECRAN
+      Endif
+    Endif
+  Next
+ Gosub LOAD_WL_STATUS
+Call FERME_TRACE  From LECFIC
+Call LEC_TRACE  From LECFIC
+
+Endif
+
+Return
+
+# Issue X3-211468, X3-211469 by MAPON
+$LOAD_PAYMENT_APPROVAL
+
+If [F:TPY]PAYAPP <> [V]CST_AYES
+  Chgfmt [M:FRM0]APPSTA    With "-LA2823:20"
+  Chgfmt [M:FRM1]PAYAPPFLG With "-LA1:4"
+  [M:FRM0]APPSTA = 1
+Else
+  Chgfmt [M:FRM0]APPSTA    With "LA2823:20"
+  Chgfmt [M:FRM1]PAYAPPFLG With "LA1:4"
+  If GREP <> "C"
+    Gosub CHECK_PAYMENT_APPROVAL
+  Endif
+Endif
+
+Return
+
+
+$CHECK_PAYMENT_APPROVAL
+Local Integer APP_PAY : Raz [L]APP_PAY
+
+For I = 0 To [M:FRM1]NBLIG-1
+  Read [F:PYH]PYH0 = [M:FRM1]NUM(I)
+  If !fstat
+    [M:FRM1]PAYAPPFLG(I) = [F:PYH]PAYAPPFLG
+  Endif
+  If [F:PYH]PAYAPPFLG = [V]CST_AYES
+    Chgstl [M:FRM1]PAYAPPFLG(I) With ""
+    [L]APP_PAY +=1
+  Elsif [F:PYH]PAYAPPFLG = [V]CST_ANO
+    Chgstl [M:FRM1]PAYAPPFLG(I) With "BACKRED"
+  Else
+    Chgstl [M:FRM1]PAYAPPFLG(I) With ""
+  Endif
+  Affzo [M:FRM1]PAYAPPFLG(I)
+Next
+Case [L]APP_PAY
+  When 0             : [M:FRM0]APPSTA = 3 #issue X3-218095
+  When [M:FRM1]NBLIG : [M:FRM0]APPSTA = 1
+  When Default       : [M:FRM0]APPSTA = 2
+Endcase
+
+Affzo [M:FRM0]APPSTA
+
+Return
+# Issue X3-211468 end
+
+
+Subprog C_FRMNUM(VALEUR)
+Variable Char    VALEUR()
+If VALEUR<>""
+ Call LEC_FRM(1, VALEUR) From CPTLEC
+ If fstat>2
+  VALEUR=""
+ Elsif dim([F:TPY]ACS)>0
+  Call LEC_TPY_LEG(GCURLEG,[F:FRM]PAYTYP) From CPTLEC
+  Call CONTEXE([F:TPY]ACS) From CPTSUB
+ Endif
+Endif
+End
+
+Subprog AP_FRMNUM(VALEUR)
+Variable Char    VALEUR()
+[M]FRMFLG=1
+If VALEUR="" : mkstat=4 : Endif
+End
+
+Subprog AS_FRMFCY(VALEUR)
+Variable Char    VALEUR()
+If VALEUR=""
+ Call INIFCY(VALEUR,[M]CPY) From CPTSUB
+ If mkstat=2
+  Call LEC_FCY(VALEUR) From CPTLEC
+  Gosub SETFCY
+  mkstat=2
+ Endif
+Elsif GNBAUZ=1 & GFCYDEF(0)=VALEUR
+ mkstat=2
+Endif
+End
+
+$SETFCY
+Local Char DEVLED(GLONCUR)
+Call LEC_CPY([F:FCY]LEGCPY) From CPTLEC
+Call SETCUR(1,[F:CPY]CPY,DEVLED) From CPTDIV
+[M]CPY = [F:FCY]LEGCPY
+[M]CURCPY=DEVLED
+Affzo CPY
+Affzo [FRM1] CURCPY
+Return
+
+Subprog C_FRMFCY(VALEUR)
+Variable Char    VALEUR()
+Call LEC_FCY(VALEUR) From CPTLEC
+If fstat : mkstat=2
+Elsif [F:FCY]LEGCPY<>[M]CPY
+ If [M]NBLIG>0 : # Ce site est dans la société
+  GMESSAGE = mess(30,106,1)-[F:FCY]LEGCPY : mkstat=2 : End
+ Endif
+Endif
+Gosub SETFCY
+If dim(GEXETAX) > 0 : GEXETAX = func AFNC.PARAM("EXETAX", [M]CPY) : Endif
+End
+
+Subprog AM_FRMFCY(VALEUR)
+Variable Char    VALEUR()
+If dim(GSDDMGT)>0
+  #X3-112211
+  #GSDDMGT = val(func AFNC.PARAM("SDDMGT",[M]CPY))
+  If func AFNC.ACTIV("SDD"): GSDDMGT = val(func AFNC.PARAM("SDDMGT",[M]CPY)) : Endif
+  #END X3-112211
+Endif
+End
+
+Subprog AS_BAN(VALEUR)
+Variable Char    VALEUR()
+If [M]NBLIG : mkstat=2 : Endif
+End
+
+Subprog C_BAN(VALEUR)
+Variable Char    VALEUR()
+If clalev([F:BAN])=0 : Local File BANK    [BAN] : Endif
+If clalev([F:CPY])=0 : Local File COMPANY [CPY] : Endif
+Call LEC_BAN(VALEUR) From CPTLEC
+If [F:BAN]CPY<>[M]CPY
+ # Banque/Caisse de la société CPY
+ GMESSAGE=mess([F:BAN]BANCSH,653,1)-mess(5,117,1)-[F:BAN]CPY
+ mkstat = 2 : End
+Endif
+If [F:BAN]FCY<>""
+ Call GETSOC([F:BAN]FCY) From DEVSUB
+Else
+ Call LEC_CPY([F:BAN]CPY) From CPTLEC
+ Call GETSOC([F:CPY]MAIFCY) From DEVSUB
+ GSOCIETE = [F:BAN]CPY
+ Call AM_CPY([F:BAN]CPY) From CPTTRT
+Endif
+Call CONTDEV([F:BAN]CUR,datesyst) From TRTDEV
+If fstat | mkstat : End : Endif
+[M]CURBAN=[F:BAN]CUR
+
+Affzo [FRM1]CURBAN
+End
+
+Subprog AS_PAYTYP(VALEUR)
+Variable Char    VALEUR()
+If [M]NBLIG : mkstat=2 : Endif
+End
+
+Subprog C_PAYTYP(VALEUR)
+Variable Char    VALEUR()
+Call LEC_TPY_LEG(GCURLEG,VALEUR) From CPTLEC
+Call CONTEXE([F:TPY]ACS) From CPTSUB
+If mkstat : End : Endif
+If [F:TPY]STA5<>2 : # Type de règlement non paramétré pour cette fonction
+ GMESSAGE = mess(29,117,1) : mkstat=2
+Endif
+# Pas de contrôle sur la devise de la banque
+Gosub LOAD_PAYMENT_APPROVAL   # Issue X3-211468 by MAPON
+End
+
+Subprog AS_FRMTYP(VALEUR)
+Variable Integer VALEUR
+## laisser la possibilité de modifier le type de remise
+## même si des règlements sont associés au bordereau
+Call LEC_TED(GCURLEG,[F:TPY]CODEDT) From CPTLEC
+If !fstat & find([F:TED]TRT,"CHE","CHR") : VALEUR=1 : mkstat=2 : Endif
+End
+
+Subprog AS_CHQTYP(VALEUR)
+Variable Integer VALEUR
+# Local File [BAN], [TPY]
+Call LEC_BAN([M]BAN) From CPTLEC
+Call LEC_TPY_LEG(GCURLEG,[M]PAYTYP) From CPTLEC
+If !([F:TPY]DACCHQTYP<>3 & [F:BAN]CHQTYPFLG=2)
+ mkstat=1
+Elsif [M]NBLIG
+ mkstat=2
+Endif
+End
+
+Subprog AV_STA2(VALEUR)
+Variable Char    VALEUR()
+Case [M]STA
+ When 0       : VALEUR=""
+ When Default : VALEUR=mess([M]STA,689,1)
+Endcase
+End
+
+Subprog AV_LIN(VALEUR)
+Variable Decimal  VALEUR
+VALEUR = nolign
+End
+
+Subprog AS_NUM(VALEUR)
+Variable Char    VALEUR()
+If VALEUR<>"" : mkstat=2 : Endif
+End
+
+Subprog C_NUM(VALEUR)
+Variable Char    VALEUR()
+Call VERIF_REG(VALEUR,1)
+End
+
+Subprog VERIF_REG(VALEUR,SAI)
+Variable Char    VALEUR()
+Value    Libelle SAI : # 1=Saisie directe, 0=Picking d'un lot, 2=Picking d'un Règlement
+
+Local Integer STAT, I, SIGN, NOL, OK, ERR
+Local Decimal MONTANT
+Local Char    AUZFCY(15)
+If SAI=1 : NOL=nolign-1 : Else NOL=[M]NBLIG : Endif
+# Local File [PYH], [TPY], [PAN]
+
+OK=1
+For I=0 To [M]NBLIG-1
+ If [M]NUM(I)=VALEUR : OK=0 : Break : Endif
+Next I
+If !OK
+ If SAI
+  GMESSAGE=mess(29,100,1)-num$(I+1) : # Code déjà saisi en ligne I+1
+ Endif
+ mkstat=2 : End
+Endif
+
+If SAI
+ Call LECTURE("PAY",VALEUR,"") From CONTOBJ
+ If fstat : # Règlement VALEUR - Fiche inexistante
+  GMESSAGE=mess(27,117,1)-VALEUR+"\"+mess(23,100,1) : mkstat=2 : End
+ Endif
+Endif
+
+I=find([F:PYH]FCY,[M]FCY(0..[M]NBLIG-1))
+If I<1
+ Call DROITSITEF("GESPAY",[F:PYH]FCY,[L]AUZFCY,OK) From CPTSUB
+ If OK & !instr(1,[L]AUZFCY,"M") : OK=0 : Endif
+Else OK=[M]SAI(I-1)
+Endif
+If !OK
+ If SAI
+  GMESSAGE = [F:PYH]FCY-":"-mess(2,104,1) : # Vous n'avez pas les droits pour ce site
+ Endif
+ mkstat=2 : End
+Endif
+
+If [F:PYH]PAYTYP<>[M]PAYTYP
+ If SAI
+  # Type de règlement non paramétré pour cette fonction
+  GMESSAGE = [F:PYH]PAYTYP-":"-mess(29,117,1)
+ Endif
+ OK=0 : mkstat=2 : End
+Endif
+
+If [F:PYH]CPY<>[M]CPY
+ If SAI
+  GMESSAGE = mess(2,116,1)-[F:PYH]CPY : # Société
+ Endif
+ OK=0 : mkstat=2 : End
+Endif
+
+If [M]CHQTYP & [F:PYH]CHQTYP<>[M]CHQTYP : # Type de chèque
+ If SAI
+  GMESSAGE = mess(454,200,1)+"<>"+mess([M]CHQTYP,654,1)
+ Endif
+ OK=0 : mkstat=2 : End
+Elsif [F:PYH]BAN<>"" & [F:PYH]BAN<>[M]BAN
+ If SAI
+  GMESSAGE = mess([F:TPY]BANCSH,653,1)-[F:PYH]BAN : # Banque = BAN
+ Endif
+ OK=0 : mkstat=2 : End
+Else
+ If [F:TPY]STA3=2    : STAT=3
+ Elsif [F:TPY]STA2=2 : STAT=2
+ Else                : STAT=0
+ Endif
+ If (STAT & [F:PYH]STA<STAT) | [F:PYH]STA>7
+  If SAI
+   GMESSAGE = mess(9,105,1)-":"-mess([F:PYH]STA,689,1) : # Etat
+  Endif
+  OK=0 : mkstat=2 : End
+ Endif
+ If [F:PYH]BAN=""
+  # Voulez-vous affecter la banque [M]BAN à ce règlement ?
+  MESSA = mess(127,121,1)-[M]BAN-mess(128,121,1)
+  OK=2 : Call AVERTIR(MESSA,OK) From GESECRAN
+  If OK=2
+   Call CONTBAN([F:PYH]ACCDAT,[M]BAN,[F:PYH]CUR) From CPTSUB
+  Else
+   OK=0 : mkstat=2 : End
+  Endif
+ Endif
+Endif
+
+If !find([F:PYH]FRMNUM,'',[M]FRMNUM)
+ Lock ="FRM"+[F:PYH]FRMNUM+"\1"
+ If fstat=0
+  Unlock ="FRM"+[F:PYH]FRMNUM+"\1"
+  Filter [PAN] Where TYPNUM=1 & NUM=[F:PYH]FRMNUM & RENCOD="R"+[F:PYH]NUM
+  Read [PAN]PAN0 First
+  Filter [PAN]
+  OK=1
+  If fstat<=2 : OK=0
+  Else
+   Call DROITSITE([F:PYH]FRMFCY,[L]AUZFCY,OK) From CPTSUB
+   If OK & (!instr(1,[L]AUZFCY,"M") | !instr(1,[L]AUZFCY,"S")) : OK=0 : Endif
+  Endif
+  If !OK
+   # Règlement sur le bordereau de remise X
+   GMESSAGE = mess(114,117,1)-[F:PYH]FRMNUM : mkstat=2 : End
+  Else
+   # Règlement sur le bordereau de remise X
+   OK=2 : Call AVERTIR(mess(114,117,1)-[F:PYH]FRMNUM,OK) From GESECRAN
+   If OK<>2 : mkstat=2 : End : Endif
+  Endif
+ Else
+  GMESSAGE = mess(114,117,1)-[F:PYH]FRMNUM+"\"+mess(10,100,1) : End
+ Endif
+Endif
+
+#06-05-2022.001.INI AUREN Eliminación control fechas vencimientos por remesas
+## Contrôle mono-échéance si la transaction de règlement génère du SEPA
+#If [F:TPY]EPACDTTRF=2
+# If nolign>1
+#  If [M]DUDDAT(0)<>[0/0/0] & [F:PYH]DUDDAT<>[M]DUDDAT(0)
+#   # Cette remise doit être mono-échéance
+#   GMESSAGE = mess(244,117,1) : mkstat=2 : End
+#  Endif
+## Elsif nolign=1 & [M]NBLIG>1
+# Elsif nolign=1
+#  Local Integer II
+#  ERR = 0
+##  For II=1 To [M]NBLIG-1
+#  For II=0 To [M]NBLIG-1
+#   If [M]DUDDAT(II)<>[0/0/0] & [F:PYH]DUDDAT<>[M]DUDDAT(II)
+#    ERR =1 : Break
+#   Endif
+#  Next
+#  If ERR
+#   # Cette remise doit être mono-échéance
+#   GMESSAGE = mess(244,117,1) : mkstat=2 : End
+#  Endif
+# Endif
+#Endif
+#06-05-2022.001.fin
+
+
+# Checks for SDD are relative to the first payment entered in the array
+# SDD activity code is active + SDDMGT parameter set to 1 + Sign of the Payment entry type = Revenue +
+# SEPA transaction
+If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]EPACDTTRF=2 & [F:TPY]SNS=2
+ If [M]NBLIG=0 : # Insert the first new line in the array
+   Call VERIF_SDD([F:PYH]CUR,[F:PYH]UMRNUM,[F:PYH]UMRSEQ,[M]CPY,VALEUR,ERR)
+ Elsif [M]NUM(0)<>""
+  Call VERIF_SDD([F:PYH]CUR,[F:PYH]UMRNUM,[F:PYH]UMRSEQ,[M]CPY,[M]NUM(0),ERR)
+ Else : # Insert a line at the top of the array. The array isn't empty
+  Call VERIF_SDD([F:PYH]CUR,[F:PYH]UMRNUM,[F:PYH]UMRSEQ,[M]CPY,[M]NUM(1),ERR)
+ Endif
+ If ERR=1 : mkstat = 2 : End : Endif
+ [M]UMRSEQ(nolign-1)=[F:PYH]UMRSEQ
+Endif
+
+## Pour une transaction avec comme seule étape de comptabilisation la remise en banque groupée d'un bordereau,
+## tous les règlements portés sur un bordereau doivent être associés à la même devise.
+If [F:TPY]STA3<>2 & [F:TPY]STA8<>2 & ([M]FRMTYP=1 & [F:TPY]ACETYP91=2) | ([M]FRMTYP=2 & [F:TPY]ACETYP92=2)
+ If [M]CUR(0)<>"" & [F:PYH]CUR<>[M]CUR(0)
+  # Tous les règlements doivent être associés à la même devise
+  GMESSAGE = mess(203,117,1) : mkstat=2 : End
+ Endif
+Endif
+
+Default Mask [FRM1]
+nolign=NOL+1 : [M]=[F:PYH]
+
+Gosub SET_LIG
+[M]SAI(NOL)=1
+If SAI<>1
+ [M]NBLIG+=1
+ Affzo 10 : # Tableau des reglements
+Endif
+Affzo TOTLOC, TOTBAN
+Gosub LOAD_WL_STATUS
+End
+
+Subprog VERIF_SDD(CUR, UMRNUM, UMRSEQ, CPY, NUMPAY, ERR)
+Value    Char    CUR     # Currency of the current payment
+Value    Char    UMRNUM  # Mandate number of the current payment
+Value    Char    UMRSEQ  # Scheme/sequence number of the current payment
+Value    Char    CPY     # Company in the header
+Value    Char    NUMPAY  # Payment number of the first line
+Variable Integer ERR
+
+If filinfo(filpath("FIL","MANDATE","fde",""),0)>0
+ If !clalev([F:MDT])  : Local File MANDATE  [MDT]  : Endif
+Endif
+If clalev([F:PYH2])=0 : Local File PAYMENTH [PYH2] : Endif
+
+Local Char SCHEMEFIR(1) : # contains the type (=scheme) of the first entered payment
+Local Char SEQFIR(30)    : # contains the sequence of the first entered payment
+
+ERR=0
+
+If CUR<>GEURO
+ # Tous les règlements doivent être associés à la même devise
+ GMESSAGE = mess(203,117,1)-GEURO
+ ERR=1 : End
+Endif
+
+Call LEC_MDT(CPY,UMRNUM) From CPTLEC
+If !fstat
+ If [F:MDT]STA<>2 & [F:MDT]STA<>5
+  # Le mandat du règlement doit être validé
+  GMESSAGE = mess(271,117,1) : ERR = 1 : End
+ Endif
+Else
+ Gosub TIT From WOMDT
+ # Mandat : Fiche inexistante
+ GMESSAGE = TIT-":"-UMRNUM
+ GMESSAGE +="\"+mess(23,100,1)
+ ERR = 1 : End
+Endif
+
+Read [PYH2]PYH0=NUMPAY
+SCHEMEFIR = left$([F:PYH2]UMRSEQ,1)
+SEQFIR = right$([F:PYH2]UMRSEQ,3)
+
+If SEQFIR<>right$(UMRSEQ,3)
+ # Tous les règlements doivent avoir la même séquence
+ GMESSAGE = mess(275,117,1) : ERR = 1 : End
+Endif
+
+If SCHEMEFIR<>left$(UMRSEQ,1)
+ # Tous les règlements doivent avoir le même type de mandat
+ GMESSAGE = mess(272,117,1) : ERR = 1 : End
+Endif
+
+End
+
+Subprog SELNUM(CRITERE)
+Variable Char  CRITERE()
+# Local File [PYH], [TPY]
+Local Char    SUBCRIT(250)
+Local Integer STAT, OK, I
+
+CRITERE = 'STA<8 & FRMNUM="" & CPY="'+[M]CPY+'"'
+If GUSRFCY(1)<>"\" & GNBAUZ<>GNBSITE
+ CRITERE -= '& find(FCY,GUSRFCY(1..GNBAUZ))'
+Endif
+If [M]CHQTYP
+ CRITERE -= "& CHQTYP="+num$([M]CHQTYP)
+Endif
+If [M]PAYTYP<>""
+ CRITERE -= '& PAYTYP="'+[M]PAYTYP+'"'
+ CRITERE -= '& (BAN="" | BAN="'+[M]BAN+'")'
+ If [F:TPY]STA3=2    : STAT=2
+ Elsif [F:TPY]STA2=2 : STAT=1
+ Else                : STAT=0
+ Endif
+ If STAT : CRITERE -= " & STA>"+num$(STAT) : Endif
+Else
+ CRITERE -= '& BAN<>""'
+ STAT=0
+ For [TPY]TPY0 Where STA5=2 & STA2<>2 & STA3<>2
+  Gosub ACCES
+  If OK : SUBCRIT += ",'"+[F:TPY]PAYTYP+"'" : Endif
+ Next
+ If SUBCRIT<>""
+  If !STAT : CRITERE-=" & (" : STAT=1 : Endif
+  CRITERE+="find(PAYTYP"+SUBCRIT+")"
+  SUBCRIT=""
+ Endif
+ For [TPY]TPY0 Where STA5=2 & STA2=2 & STA3<>2
+  Gosub ACCES
+  If OK : SUBCRIT += ",'"+[F:TPY]PAYTYP+"'" : Endif
+ Next
+ If SUBCRIT<>""
+  If !STAT : CRITERE-=" & (" : STAT=1 : Else CRITERE+=" | " :  Endif
+  CRITERE+="(STA>1 & find(PAYTYP"+SUBCRIT+"))"
+  SUBCRIT=""
+ Endif
+ For [TPY]TPY0 Where STA5=2 & STA3=2
+  Gosub ACCES
+  If OK : SUBCRIT += ",'"+[F:TPY]PAYTYP+"'" : Endif
+ Next
+ If SUBCRIT<>""
+  If !STAT : CRITERE-=" & (" : STAT=1 : Else CRITERE+=" | " :  Endif
+  CRITERE+="(STA>2 & find(PAYTYP"+SUBCRIT+"))"
+ Endif
+ If STAT : CRITERE+=")" : Endif
+Endif
+End
+
+$ACCES
+If dim([F:TPY]ACS)>0
+ Call CONTEXE([F:TPY]ACS) From CPTSUB
+ If mkstat : GMESSAGE="" : OK=0 : mkstat=0 : Else OK=1 : Endif
+Else OK=1
+Endif
+Return
+
+Subprog C_NBLIG
+If find(status,65,68,83)
+ Local Integer IND, XLIG, OK
+ Local Char    AUZFCY(20)
+ If status=65 : nolign1=nolign : Endif
+ # Local File [PAN]
+ XLIG = (nolign1<>nolign)
+ For IND=nolign-1 To nolign1-1
+  If ![M]SAI(IND)
+   # Règlement NUM (Ligne IND+1) - Annulation impossible (Site FCY)
+   GMESSAGE = mess(27,117,1)-[M]NUM(IND)
+   If XLIG : GMESSAGE -= "("+mess(47,116,1)-num$(IND+1)+")" : Endif
+   GMESSAGE += "\"+mess(49,117,1)-"("+mess(5,116,1)-[M]FCY(IND)+")"
+   mkstat=1 : Break
+  Elsif [M]STA>=8
+   # Règlement comptabilisé NUM  (Ligne IND+1) - Annulation impossible
+   GMESSAGE = mess(54,117,1)-[M]NUM(IND)
+   If XLIG : GMESSAGE -= "("+mess(47,116,1)-num$(IND+1)+")" : Endif
+   GMESSAGE += "\"+mess(49,117,1)
+   mkstat=1 : Break
+  Else
+   Filter [PAN] Where TYPNUM=1 & NUM=[M]FRMNUM & RENCOD="R"+[M]NUM(IND)
+   Read [PAN]PAN0 First
+   If fstat<=2
+    # Règlement comptabilisé NUM  (Ligne IND+1) - Annulation impossible
+    GMESSAGE = mess(54,117,1)-[M]NUM(IND)
+    If XLIG : GMESSAGE -= "("+mess(47,116,1)-num$(IND+1)+")" : Endif
+    GMESSAGE += "\"+mess(49,117,1)
+    mkstat=1 : Break
+   Endif
+  Endif
+ Next IND
+ Filter [PAN]
+ If mkstat=0
+  [M]TOTLOC-=sum([M]AMTLOC0(nolign-1,nolign1-1))
+  If [M]CURBAN<>[M]CURCPY
+   [M]TOTBAN-=sum([M]AMTBAN0(nolign-1,nolign1-1))
+  Else
+   [M]TOTBAN = [M]TOTLOC
+  Endif
+  Affzo TOTLOC, TOTBAN
+ Endif
+Endif
+# control on line modification, addition, record save, loosing focus, creation
+If find(status, 20, 71, 73, 75, 82, 92, 93)
+  Gosub LOAD_WL_STATUS
+  Gosub CHECK_PAYMENT_APPROVAL   # Issue X3-211468 by MAPON
+Endif
+
+
+End
+
+Subprog IB_NBLIG
+Call LEC_PYH([M]NUM(nolign-1)) From CPTLEC
+# Issue X3-211469 by MAPON
+If fstat = 0
+  GBOUT1 = mess(27,117,1) : # Règlement
+  If [F:PYH]PAYAPPFLG = [V]CST_ANO and [F:FRM]STA < 8
+    Call TEXTE(38778,GBOUT2) From OBJDIV
+  Else
+    GBOUT2 = ""
+  Endif
+Else
+  GBOUT1 = ""
+  GBOUT2 = ""
+Endif
+# Issue X3-211469 end
+End
+
+$AB1_NBLIG
+#previus code commented out, because AB1_NBLIG and BB1_NBLIG were not used
+#Local Integer SAVCONS : SAVCONS=GCONSULT
+#GCONSULT=2
+Return
+
+$BB1_NBLIG
+#GCONSULT=SAVCONS
+#mkstat=2
+# Issue X3-222662 by MAPON
+Local Integer I
+Local Tinyint GENFIC
+
+Gosub SET_PAYAPP_BUTTONS
+# Issue X3-222662 end
+Return
+
+###################################
+## Etiquettes écran FRM2 et FRM3 ##
+###################################
+Subprog AS_FILREF6(VALEUR)
+Variable Char    VALEUR()
+If [M]FILREF71<>"" | [M]FILREF8<>""
+ mkstat = 1
+ End
+Endif
+If VALEUR=""
+ Call LEC_TPY_LEG(GCURLEG,[M:FRM0]PAYTYP) From CPTLEC
+ VALEUR = [F:TPY]FILREF6
+Endif
+If VALEUR<>""
+  Grizo [M:DIA]FILREF8
+Endif
+End
+
+Subprog AS_FILREF71(VALEUR)
+Variable Char    VALEUR()
+If [M]FILREF6<>"" | [M]FILREF8<>""
+ mkstat = 1
+ End
+Endif
+If VALEUR=""
+ Call LEC_TPY_LEG(GCURLEG,[M:FRM0]PAYTYP) From CPTLEC
+ VALEUR = [F:TPY]FILREF71
+Endif
+If VALEUR<>""
+  Grizo [M:DIA]FILREF8
+Endif
+End
+
+Subprog AS_FILREF8(VALEUR)
+Variable Char    VALEUR()
+If [M]FILREF6<>"" | [M]FILREF71<>""
+ mkstat = 1
+ End
+Endif
+If VALEUR=""
+ Call LEC_TPY_LEG(GCURLEG,[M:FRM0]PAYTYP) From CPTLEC
+ VALEUR = [F:TPY]FILREF8
+Endif
+If VALEUR<>""
+  Grizo [M:DIA]FILREF6, FILREF71
+Endif
+End
+
+Subprog D_TYPFIL(VALEUR)
+Variable Integer VALEUR
+If dim([M:DIA]VOLFIL)<0 : End : Endif
+VALEUR = 2
+# Initialisation de la zone Répertoire
+Call PARAMUTIL("REPBANKDEF",[M:DIA]VOLFIL,GUSER,"") From SUBAUS
+If [M:DIA]VOLFIL="" or left$([M:DIA]VOLFIL,1)<>"["
+ [M:DIA]VOLFIL = "["+GDIRBQE+"]"
+Endif
+Gosub ENUM_VOLFIL_TYPE  From ASYRSTO
+If func ASYRSTO.CTL_VOLFIL([M]TYPFIL,[M:DIA]VOLFIL,[M]FILDIRLOC,E_TYPE_FOLDER,GMESSAGE)<>0
+ Raz [M]VOLFIL
+Endif
+End
+
+Subprog AM_TYPFIL(VALEUR)
+Variable Integer VALEUR
+If dim([M:DIA]VOLFIL)<0 : End : Endif
+If VALEUR=1
+ Raz [M:DIA]VOLFIL
+ Grizo [M:DIA]VOLFIL
+Else
+ If [M:DIA]VOLFIL=""
+  Call PARAMUTIL("REPBANKDEF",[M:DIA]VOLFIL,GUSER,"") From SUBAUS
+  If [M:DIA]VOLFIL="" or left$([M:DIA]VOLFIL,1)<>"["
+   [M:DIA]VOLFIL = "["+GDIRBQE+"]"
+  Endif
+ Endif
+ Actzo [M:DIA]VOLFIL
+Endif
+Affzo [M:DIA]VOLFIL
+End
+
+Subprog C_FRMFLG(VALEUR)
+Variable Integer VALEUR
+End
+
+Subprog AP_FRMFLG(VALEUR)
+Variable Integer VALEUR
+End
+
+Subprog S_FRMFLG(VALEUR)
+Variable Integer VALEUR
+End
+
+Subprog C_VOLFIL(VALEUR)
+Variable Char    VALEUR()
+Gosub ENUM_VOLFIL_TYPE  From ASYRSTO
+mkstat = func ASYRSTO.CTL_VOLFIL([M]TYPFIL,VALEUR,[M]FILDIRLOC,E_TYPE_FOLDER,GMESSAGE)
+End
+
+Subprog VERF_PARAM(PARAM,VALEUR,OK)
+Value Char PARAM()
+Value Char VALEUR()
+Variable Integer OK
+If VALEUR="" : End : Endif
+Local Char FIL(GDIMFIC)
+Gosub ENUM_VOLFIL_TYPE From ASYRSTO
+mkstat = func ASYRSTO.CTL_VOLFIL(2,VALEUR,[L]FIL,E_TYPE_FOLDER,GMESSAGE)
+If mkstat=2 : OK=0 : Else OK=1 : Endif
+End
+
+# necessary to avoid a crash in GESPPY function
+Subprog AV_FILDIRLOC(VALEUR)
+Variable Char VALEUR()
+End
+
+######################################################################################
+## Etiquette ajoutée par le superviseur (écran FRM3) 11/05/2015 15:50:09
+######################################################################################
+Subprog AV_PAYTYP3(VALEUR)
+Variable Char    VALEUR()
+#
+# Localization Switzerland, 2015-05-18 Bader
+#
+If dim(GSWIPAYBVR) > 0 and GSWIPAYBVR = 2 : # parameter "Swiss checks in payments" = yes?
+  Call LEC_TPY_LEG(GCURLEG,VALEUR) From CPTLEC
+  If !find([F:TPY]SWIPAYTYP,2,3)    # not a DTA/EZAG payment
+    If dim([M:DIA]SWIDTAEZAG) > 0   # icon "DTA/EZAG file generation" exists?
+      Grizo [M:DIA]SWIDTAEZAG
+      Enable GSTAOK                 # enable OK button
+    Endif
+  Else                              # DTA/EZAG payment
+    Grizo [M:DIA]5-99
+    If dim([M:DIA]SWIDTAEZAG) > 0   # icon "DTA/EZAG file generation" exists?
+      Actzo [M:DIA]SWIDTAEZAG
+      Disable GSTAOK                # disable OK button
+    Endif
+  Endif
+Else                                #  parameter "Swiss checks in payments" = no or doesn't exist
+  If dim([M:DIA]SWIDTAEZAG) > 0 : Grizo [M:DIA]SWIDTAEZAG : Endif  # icon "DTA/EZAG file generation" exists? -> disable
+Endif
+# End Localization Switzerland
+End
+
+# Issue X3-211469 by MAPON
+Subprog B2_NBLIG
+Local Integer I
+Local Tinyint GENFIC
+
+If [M:FRM1]PAYAPPFLG(nolign-1) <> [V]CST_AYES
+  Gosub APPROVE_PAYMENT From SUBPAY4
+  Gosub SET_PAYAPP_BUTTONS   # Issue X3-222662 by MAPON
+Endif
+End
+
+Subprog D_PAYAPPFLG(VALEUR)
+Variable Integer VALEUR
+VALEUR = 0
+End
+
+Funprog FIND_PAYMENT_APPROVAL_BUTTON(FTYPBOUT,FCODBOUT)
+Value Integer FTYPBOUT
+Value Char FCODBOUT
+Local Integer FSTABOUT
+Local Integer I : I = 1
+
+If !clalev([F:AWT]) : Local File AWINBOUT [AWT] : Endif
+
+Filter [F:AWT] Where [F:AWT]WIN = "OFRM" and [F:AWT]TYPBOUT = FTYPBOUT Order By [F:AWT]NUM
+For [F:AWT]
+  If [F:AWT]CODBOUT = FCODBOUT
+    Case FTYPBOUT
+      When 1  # button
+        [L]FSTABOUT = 1800 + I
+        Break
+      When 3 # menu item
+        [L]FSTABOUT = 2000 + I
+        Break
+      When Default
+    Endcase
+  Else
+    I+=1
+  Endif
+Next
+Filter [F:AWT]
+End [L]FSTABOUT
+# Issue X3-211469 end
+
+$SET_PAYAPP_BUTTONS
+If GUSRFCY(1)="\"
+  I = 1
+Else
+  I = find([M]FRMFCY,GUSRFCY(1..GNBAUZ))
+Endif
+Gosub CHECK_PAYMENT_APPROVAL
+Call LEC_TPY_LEG(GCURLEG,[M:FRM0]PAYTYP) From CPTLEC
+If [M:FRM0]APPSTA <> 1 or GREP <> "" or I<1 or !instr(1,GUSRAUZ(I),"V")
+&  or !(([M]STA<8 & [F:TPY]STA8=2) or ([M]STA<9 and [F:TPY]STA9=2))
+  Disable [V]POST_BUTTON
+Else
+  Enable [V]POST_BUTTON
+Endif
+[L]GENFIC=1
+GPOINT = "BOUTON" : Gosub ENTREE From EXEFNC
+If [M:FRM0]APPSTA <> 1 or GREP <> "" or I<1 or !instr(1,GUSRAUZ(I),"F")
+&  or ([F:TPY]STA6<>2 and [F:TPY]EPACDTTRF<>2) or ![L]GENFIC
+  Disable [V]BANK_FILE_BUTTON
+Else
+  Enable [V]BANK_FILE_BUTTON
+Endif
+If [F:TPY]PAYAPP=[V]CST_AYES and !find(GREP,"C","M","D") and [M:FRM0]APPSTA<>1 and [M:FRM1]NBLIG<>0
+  Enable [V]APPROVE_ALL_BUTTON, [V]REMOVE_UNAPPROVED_BUTTON
+Else
+  Disable [V]APPROVE_ALL_BUTTON, [V]REMOVE_UNAPPROVED_BUTTON
+Endif
+Return

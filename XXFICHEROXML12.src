@@ -1,0 +1,60 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# Z2010 - SPE/EJC-020-10 - JC.04062022 - Ventas Facturación. Número de factura largo para presentación SII
+#001 ICR_SII_Detalles del envío - AMG.08/08/2022 - Modificaciones en campo descripción, campo emitida por tercero
+############################################################################################################
+
+$ACTION
+Case ACTION
+   When "WRISIIFILE"  : Gosub WSIIFILE
+   When "AFTVARSII"   : Gosub WVARPOST
+Endcase
+Return
+
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+##############################################################
+$WSIIFILE
+  #WFILE<>0, NO ENVIAMOS EL XML.
+  #WFILE=1 #si wfile=1 no enviamos el xml
+  Openo filpath("BQT","SII_"+date$+"_"+left$(time$,2)+mid$(time$,4,2)+"_0"+mid$(time$,7,2),"XML"),0 Using [XXX]
+  Wrseq WDATAXML Using [XXX]
+  Openo Using [XXX]
+Return
+
+##############################################################
+$WVARPOST
+  Case WLIBRO
+    When 1: Gosub WVARPOST_1
+  Endcase
+Return
+
+##############################################################
+$WVARPOST_1
+# Factures emeses
+  If !clalev([SIH]): Local File SINVOICE: Endif
+
+  For WIND = 0 To IND
+    Read [SIH]SIH0 = WNUMFACID(WIND)
+    If !fstat
+      If [F:SIH]ZNUMFACCLI <> "" Then
+        # Número de factura -> Nº factura cliente
+        WFACTURAEMISOR(WIND) = [F:SIH]ZNUMFACCLI
+        WNUMBPR(WIND) = [F:SIH]ZNUMFACCLI
+      Endif
+      #001.ini
+        #Modificamos descripción por defecto de todas las facturas enviadas
+        WDESCROPE(WIND)="Prestación de servicios sanitarios"
+        #En caso de facturas FMX(Factura mutua cedida) enviamos el campo factura emitida por tercero con valor SI
+      If [F:SIH]SIVTYP="FMX" or [F:SIH]SIVTYP="RMX" Then
+        WEMITER(WIND)="S"
+      Endif
+        #En caso de facturas exentas con valor E6 (Exenta otros) lo modificamos a E1 (Exenta por art. 20)
+      If num$(WCAUSAEXE(WIND))="E6" Then
+        WCAUSAEXE(WIND)="E1"
+      Endif
+      #001.fin
+    Endif
+  Next
+Return

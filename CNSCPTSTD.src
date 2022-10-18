@@ -1,0 +1,2213 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+#*********************************************************************************#
+#* Account inquiry - CONSCPT
+#*
+# Issue X3-146607 - 2019-07-15 by MDJ : test on [V]GCNSEXPORTXLS value changed from "=ANO" to "<>AYES"
+# Issue X3-116770 - 2019-03-13 by BEFOU : Perf update on export  : using  [V]GCNSEXPORTXLS to know if we are on export to not calcul summary
+# Issue X3-109301 - 2018-09-28 by CBO : performance in PAY object
+# Issue X3-195005 - 2020-05-28 by SMO : Accounts with access code are not well managed after searching.
+# Issue X3-234239 - 2021-02-17 by SMO : When doing an account inquiry trough the lines of a Payment Receipt the default dates are not the same as the DATEDEBDFT|DATEFINDFT parameters
+#                                       In case the default values are not in the opened fiscal years the LAST fiscal year is proposed (as it does CONSCPT)
+#
+#*!
+##001.AMG.10/08/2022 FACTURAS E-DESTINATARIO FACTURA Y PAGADOR SON DIFERENTES
+
+Raz GNBMASKOUV
+Raz GTUNCPT
+Local Char PARAM(10)(1..10)
+PARAM(1)=""
+PARAM(2)="PAR"
+PARAM(3)="1"
+PARAM(4)="355000"
+PARAM(5)=""
+PARAM(6)=""
+PARAM(7)=[01/01/2008]
+PARAM(8)=[31/12/2008]
+PARAM(9)=""
+PARAM(10)=""
+Call GCONSULT("CPT","",PARAM) From GCONSULT
+End
+
+Subprog PATCH(APPLI)
+Value Char APPLI
+If APPLI="X3" End Endif
+If !clalev([F:ADS]) Local File ADOSSIER [ADS] Endif
+Read [ADS]DOSSIER=APPLI
+If !fstat & [F:ADS]MODULE(1)<>2 End Endif
+Call VALGTC(APPLI,"CPT") From SUBGTC
+End
+
+$ACTION
+#If GUSER="ADMIN" Then
+#Infbox ACTION
+#Endif
+
+Case ACTION
+ When "AUTORIS"    : Gosub AUTORIS
+ When "FERME"      : Gosub FERME
+ When "OUVRE"      : Gosub OUVRE
+ When "LECTURE"    : Gosub LECTURE
+ When "AV_MAGNETO" : Gosub AV_MAGNETO
+ When "CLECUR"     : If !CLECUR & [M:CPT1]TIERS<>"" : CLECUR=1 : Endif
+ When "SET_DERLU"  : Gosub SET_DERLU
+ When "SETBOUT"    : Gosub SETBOUT
+ When "DEB_CRIT"   : Gosub DEB_CRIT
+ When "FIN_CRIT"   : Gosub FIN_CRIT
+ When "EXEBOUT2"   : Gosub EXEBOUT2
+ When "LISTE1"     : Gosub LISTE1
+ When "AB1_NBLIG"  : Gosub AB1_NBLIG
+ When "AB2_NBLIG"  : Gosub AB2_NBLIG
+ When "BB1_NBLIG"  : Gosub BB_NBLIG
+ When "BB2_NBLIG"  : Gosub BB_NBLIG
+ When "TRT_DIV"    : Gosub TRT_DIV From CONSSUB
+ When "APRES_CHOI" : Gosub APRES_CHOI
+ When "AV_AFFICHE" : Gosub AV_AFFICHE
+Endcase
+Return
+
+$AUTORIS
+If clalev([F:LED]) = 0 : Local File GLED     [LED] : Endif
+If clalev([F:GAC]) = 0 : Local File GACCOUNT [GAC] : Endif
+If clalev([F:FCY]) = 0 : Local File FACILITY [FCY] : Endif
+Local Char CODLED(GLONLED), DEVLED(GLONCUR)
+Local Libelle OTUNCPT
+OTUNCPT=GTUNCPT(1)
+If GTUNCPT(1)
+ # Une même fonction ne peut pas être appelée deux fois !
+ Call MESSAGE(mess(247,199,1)) From GESECRAN
+ OK=0 : Return
+Else
+ GTUNCPT(1) = 1
+Endif
+If PARAM(2)<>""
+ Call LECTURE("FCY",PARAM(2),"") From CONTOBJ
+ If [F:FCY]FINFLG<>2
+  Call MESSAGE(mess(217,107,1)) From GESECRAN
+  OK=0 : Return
+ Endif
+Endif
+If PARAM(6)<>"" : # : # Collectif renseigné (PARAM(6))
+ If (PARAM(1)<>"" | PARAM(2)<>"") & PARAM(3)<>""
+  If PARAM(1)=""
+   Call LECTURE("FCY",PARAM(2),"") From CONTOBJ
+   PARAM(1)=[F:FCY]LEGCPY
+  Endif
+  Call LECLED(PARAM(1),val(PARAM(3)),CODLED,DEVLED) From CPTDIV
+  Call LECTURE("LED",CODLED,"") From CONTOBJ
+  Read [GAC]GAC1 = [F:LED]COA ; PARAM(6)
+  If !fstat & [F:GAC]ACS<>""
+   Local Integer DROIT
+   Call CONSACC([F:GAC]ACS,DROIT) From CPTSUB
+   If !DROIT
+    # "Vous n'avez pas les droits pour ce code"
+    Call MESSAGE(mess(4,104,1)) From GESECRAN
+    OK=0 : Return
+   Endif
+  Endif
+ Endif
+Endif
+Return
+
+$FERME
+If dim(OTUNCPT)>0 : GTUNCPT(1) = OTUNCPT : Endif
+Return
+
+$OUVRE
+If clalev([F:AFF])=0 : Local File AFCTFCY    [AFF] : Endif
+If clalev([F:COA])=0 : Local File GCOA       [COA] : Endif
+If clalev([F:CLS])=0 : Local File GACCCLS    [CLS] : Endif
+
+Local Char    CPTCUR(GLONGAC), TRSCUR(GLONBPR), COLCUR(GLONSAC), GRPCUR(GLONGSC),
+&             FCYCUR(GLONFCY), CPYCUR(GLONCPY), DEVLED(GLONCUR),
+&             CURSEL(GLONCUR), COACUR(GLONCOA)
+Local Decimal EXERCICE, PERIODE, AMT
+Local Integer NBSITE, NBSOC, ISITE, I, J, COURTYP, SPSTAT, OKCRS, CTLACS, DROIT
+NBSITE = max(1,GNBSITE)
+Local Char    TSITE(GLONFCY)(1..NBSITE)
+Local Char    TDEVLED(GLONCUR)(1..NBSITE)
+Local Integer TPFIN(1..NBSITE), TEFIN(1..NBSITE), TEDEB(1..NBSITE)
+
+#---------------------------------------------
+# 72673/72606 - Consultation sur plusieur exercice sans ecriture de cloture
+Local Char    TSOC(GLONCPY)(1..NBSITE)
+Local Integer NBFIY : NBFIY=1
+Local Integer FIYLST(1..NBFIY),FIYPEND(1..NBFIY)
+Local Char    FILTCLO(250)
+#---------------------------------------------
+
+NBSITE = 0
+Local Integer PFIN, EFIN, EDEB
+Local Integer DEBNUM, FINNUM, LIGANA
+Local Integer LEDTYPCUR
+
+Local Libelle GRP, XDEV
+Local Integer COHGRP
+Local Date    DEBEX
+Local Libelle FLTRI, TRICUR
+Local Date    DEBDAT, FINDAT, DEBDUD, FINDUD
+Local Date    DDEB, DFIN, DFCUR, DDCUR
+Local Char    DEBMTC(10), FINMTC(10), OPT(1)
+Local Char    OLDCPTDEF(5)
+Local Char    FINACC(30)
+Local Char    FILTCPT(250)(1..4)
+Local Char    SEPDAT(1)
+Local Char    NULDAT(5)
+Local Integer IFILT : IFILT = 1
+
+Local Mask VENTILE   [VTL]
+Local Mask VENTILE2  [VT2]
+
+Call PARAM("","CNSTYPCUR",OPT) From ADOVAL
+COURTYP = val(OPT) : OPT=""
+
+SEPDAT = mid$(GFMDAT,4,1)
+NULDAT = "0"+SEPDAT+"0"+SEPDAT+"0"
+
+Gosub DEFCRIT
+If [M:CPT1]COMPTE<>"" | [M:CPT1]COLLEC<>"" | [M:CPT1]GROUPE<>""
+ Gosub SET_ECRAN
+Endif
+
+# Inclure tous les AN si on gère les écritures de clôture (DBA le 21/05/03 : Sugg. 17917)
+Local Integer FLGCLO
+
+# Quand on vient par tunnel, si GREPORT2<>"" alors on perd l'option Liste => Mise à jour de RPTCOD
+If GFONCTION1<>"CONSCPT"
+ Call SET_LISTE(RPTCOD) From GCONSULT
+Endif
+
+  NAVIG = "CONSCPT"  # FGR 30/11/2012 : X3SUIVI85774
+Return
+
+$SET_ECRAN
+If CECRAN<>""
+ Return
+Elsif [M:CPT1]COA<>"" & [M:CPT1]COMPTE<>""
+ Read [GAC]GAC0 = [M:CPT1]COA;[M:CPT1]COMPTE
+Elsif [M:CPT1]COA<>"" & [M:CPT1]COLLEC<>""
+ Read [GAC]GAC1 = [M:CPT1]COA;[M:CPT1]COLLEC
+Elsif [M:CPT1]GROUPE<>""
+ Read [GSC]GSC0 = [M:CPT1]COA;[M:CPT1]GROUPE;1
+ If !fstat
+  Read [GAC]GAC1 = [F:GSC]COA;[F:GSC]SAC
+ Endif
+Else
+ Return
+Endif
+OK = 0
+
+For I=len([F:GAC]ACC) To 1 Step -1
+ Read [GT2]GT20 = [M:CPT1]COA;left$([F:GAC]ACC,I)
+ If !fstat
+  If [F:GT2]SCECODGEN<>"" & [F:GT2]SCECODGEN<>OLDCPTDEF
+   [M:CCPT]ECRAN = [F:GT2]SCECODGEN
+   OLDCPTDEF = [F:GT2]SCECODGEN
+  Endif
+  OK = 1
+  Break
+ Endif
+Next I
+If !OK
+ If OLDCPTDEF<>""
+  [M:CCPT]ECRAN = ""
+  OLDCPTDEF = ""
+ Endif
+Endif
+Return
+
+$DEFCRIT
+# Parametres
+# Il faut faire attention a ce que les parametres restent coherents entre eux
+
+If GFONCTION1 = "GESPAY" : PARAM(7) = "" : PARAM(8) = "" : Endif #X3-234239
+
+If [M:CPT1]FCY<>"" & GUSRFCY(1)<>"\" & !find([M:CPT1]FCY,GUSRFCY(1..GNBAUZ))
+ [M:CPT1]FCY=""
+Endif
+For I=1 To dim(PARAM)
+ Case I
+  When 1 : # Société
+   If PARAM(I)<>""
+    Call LECTURE("CPY",PARAM(I),"") From CONTOBJ
+    If !fstat
+     [M:CPT1]CPY = PARAM(I)
+     If [M:CPT1]FCY<>""
+      Call LECTURE("FCY",[M:CPT1]FCY,"") From CONTOBJ
+      If [F:FCY]LEGCPY<>[M:CPT1]CPY : [M:CPT1]FCY="" : Endif
+     Endif
+    Endif
+   Endif
+  When 2 : # Site
+   If PARAM(I)<>""
+    Call LECTURE("FCY",PARAM(I),"") From CONTOBJ
+    If !fstat & (GUSRFCY(1)="\" | find(PARAM(I),GUSRFCY(1..GNBAUZ)))
+     [M:CPT1]FCY = PARAM(I)
+     [M:CPT1]CPY = [F:FCY]LEGCPY
+     PARAM(1)=""
+    Endif
+   Endif
+  When 3 : # Type de référentiel
+   If clalev([GCM])=0 : Local File GACM [GCM] : Endif
+   If clalev([LED])=0 : Local File GLED [LED] : Endif
+   If val(PARAM(I))<>0
+    If [M:CPT1]CPY<>""
+     Call LECTURE("CPY",[M:CPT1]CPY,"") From CONTOBJ
+     If [F:CPY]CPYLEGFLG<>2
+      If clalev([F:FGR])=0 : Local File FACGROUP [FGR] : Endif
+      Read [FGR]FGR0(1) = [M:CPT1]CPY
+      Call LECTURE("FCY",[F:FGR]FCY,"") From CONTOBJ
+      Call LECTURE("CPY",[F:FCY]LEGCPY,"") From CONTOBJ
+     Endif
+     Call LECTURE("GCM",[F:CPY]ACM,"")  From CONTOBJ
+     If [F:GCM]LED(val(PARAM(I))-1)<>""
+      Call LECTURE ("LED",[F:GCM]LED(val(PARAM(I))-1),"") From CONTOBJ
+      [M:CPT1]LEDTYP = val(PARAM(I))
+      [M:CPT1]COA    = [F:LED]COA
+     Endif
+    Endif
+   Else
+    Call SETMAINREF([M:CPT1]CPY,GTYPGEN,GTYPANA) From CPTDIV
+    [M:CPT1]LEDTYP = GTYPGEN
+     Call LECPLAN([M:CPT1]CPY,GTYPGEN,[M:CPT1]COA) From CPTDIV
+   Endif
+   If [M:CPT1]LEDTYP = 0 :  [M:CPT1]LEDTYP = 1 : Endif
+  When 4 : # Compte
+   If PARAM(I)<>""
+    Read [GAC]GAC0 = [M:CPT1]COA;PARAM(I)
+    If !fstat
+     If [F:GAC]SAC=2
+      [M:CPT1]COLLEC = [F:GAC]ACCSHO : [M:CPT1]COMPTE = ""
+     Else
+      [M:CPT1]COMPTE = PARAM(I)      : [M:CPT1]COLLEC = ""
+     Endif
+    Endif
+   Endif
+  When 5 : # Tiers
+   If PARAM(I)<>""
+    Call LECTURE("BPR",PARAM(I),"") From CONTOBJ
+    If !fstat :  [M:CPT1]TIERS = PARAM(I) : [M:CPT1]COMPTE="" :  Endif
+   Endif
+  When 6 : # Collectif
+   If PARAM(I)<>""
+    Read [GAC]GAC1 = [M:CPT1]COA;PARAM(I)
+    If !fstat & [F:GAC]SAC=2 : [M:CPT1]COLLEC = PARAM(I) : [M:CPT1]COMPTE="" : Endif
+   Endif
+   When 7 : # Date début
+   Gosub DATUS
+   If PARAM(I)<>"" & PARAM(I)<>NULDAT & PARAM(I)<>"000000"
+    If instr(1,PARAM(I),SEPDAT)
+     [M:CPT1]DATDEB = evalue("["+ctrans(PARAM(I),SEPDAT,"/")+"]")
+    Elsif PARAM(I)<>""
+     [M:CPT1]DATDEB = PARAM(I)
+    Endif
+   Endif
+  When 8 : # Date fin
+   Gosub DATUS
+   If PARAM(I)<>"" & PARAM(I)<>NULDAT & PARAM(I)<>"000000"
+    If instr(1,PARAM(I),SEPDAT)
+     [M:CPT1]DATFIN = evalue("["+ctrans(PARAM(I),SEPDAT,"/")+"]")
+    Elsif PARAM(I)<>""
+     [M:CPT1]DATFIN = PARAM(I)
+    Endif
+   Endif
+  When 9 : # Devise
+   If PARAM(I)<>""
+    Call LECTURE("TCU",PARAM(I),"") From CONTOBJ
+    If !fstat : [M:CPT1]CURSEL = PARAM(I) : Else  Raz [M:CPT1]CURSEL : Endif
+   Endif
+  When 10 : # Option
+   For J=1 To len(PARAM(I))
+    OPT = mid$(PARAM(I),J,1)
+    If OPT="1" or OPT="2"
+     Case J
+      When 1 : # A nouveau
+       [M:CCPT]ANOUV = val(OPT)
+      When 2 : # Cloture
+       [M:CCPT]CLOTURE = val(OPT)
+     Endcase
+    Endif
+   Next J
+  When 11 : Break
+ Endcase
+Next I
+DEBDAT=[M:CPT1]DATDEB
+FINDAT=[M:CPT1]DATFIN
+
+# Cas du tunnel
+Default Mask [CPT1]
+If [M:CPT1]CPY<>""
+ Local Char CODLED(GLONLED) , DEVLED(GLONCUR)
+ Local Integer STAT
+ Local Char MESSA(250)
+ Call CNTCOHLED([M:CPT1]CPY,[M:CPT1]LEDTYP,CODLED,DEVLED,STAT,MESSA) From CPTCNT
+ If STAT=0
+  Filter [FGR] Where CPY=[M:CPT1]CPY
+  Read [FGR]FGR0 First
+  Filter [FGR]
+  Read [FCY]FCY0 = [F:FGR]FCY
+  [M:CPT1]CPY = [F:FCY]LEGCPY
+  [M:CPT1]FCY = [F:FCY]FCY
+  MESSA += "\"+mess(63,109,1)-[F:FCY]FCY : # Consultation limitée au site
+  Call MESSAGE(MESSA) From GESECRAN
+ Endif
+Endif
+Call C_LEDTYP([M:CPT1]LEDTYP)
+
+# Valeurs par défaut
+Default Mask [CPT1]
+Call INIT(DEBDAT,FINDAT) From CONSSUB
+If [M:CCPT]TYPECR =0 : [M:CCPT]TYPECR  = 1 : Endif
+If [M:CCPT]ANOUV  =0 : [M:CCPT]ANOUV   = 2 : Endif
+If [M:CCPT]CLOTURE=0 : [M:CCPT]CLOTURE = 2 : Endif
+If [M:CCPT]SIMUL  =0 : [M:CCPT]SIMUL   = 2 : Endif
+If [M:CCPT]TRI    =0 : [M:CCPT]TRI     = 1 : Endif
+Gosub CRITENT From =PROGCNS
+Affzo [M:CPT1]
+Return
+
+$DATUS
+# If first part of date is the month (MM*DD*YY) *=the separator like in the states
+# We must put the day in the first place for PARAM(i) so it could be affected to
+# a field date of the mask
+
+# But ! When we come from another inquiry function like CONSBAF,
+# then even if GFMDAT begin with MM(the month), PARAM(I) doesn't
+# necessarily contains a date separator and its value will be like "yyyymmdd"
+# It doesn't need to be ajusted then.
+
+If left$(GFMDAT,1)='M' & PARAM(I)<>"" & instr(1,PARAM(I),SEPDAT)>0
+ Local Integer X
+ Local Char DE(20) ,JR(2) ,MS(2) ,AE(4)
+ DE = PARAM(I)
+ X=instr(1,DE,SEPDAT)
+ MS=left$(DE,X-1)
+ DE=right$(DE,X+1)
+ X=instr(1,DE,SEPDAT)
+ JR=left$(DE,X-1)
+ AE=right$(DE,X+1)
+ PARAM(I)=JR+SEPDAT+MS+SEPDAT+AE
+Endif
+
+If left$(GFMDAT,1)='Y' & PARAM(I)<>"" & instr(1,PARAM(I),SEPDAT)>0
+ Local Integer X
+ Local Char DE(20) ,JR(2) ,MS(2) ,AE(4)
+ DE = PARAM(I)
+ X=instr(1,DE,SEPDAT)
+ AE=left$(DE,X-1)
+ DE=right$(DE,X+1)
+ X=instr(1,DE,SEPDAT)
+ MS=left$(DE,X-1)
+ JR=right$(DE,X+1)
+ PARAM(I)=JR+SEPDAT+MS+SEPDAT+AE
+Endif
+
+Return
+
+$LECTURE
+OK=0
+
+# Intitulé tiers
+If [M:CPT1]TIERS<>""
+ OK=1
+ Call LECTURE("BPR",[M:CPT1]TIERS,"") From CONTOBJ
+ If fstat : NBLU=0 : Return : Endif
+Endif
+
+# Intitulé compte
+If [M:CPT1]COMPTE<>""
+ OK=1
+ Call LECTURE("GAC",[M:CPT1]COMPTE,[M:CPT1]COA) From CONTOBJ
+ If fstat : NBLU=0 : Return : Endif
+Endif
+
+If !OK or [M:CPT1]CPY="" : NBLU=0 : Return : Endif
+
+# Changement d'écran ?
+Gosub SET_ECRAN
+Gosub CHANGE_MSK From GCONSULT
+If CHGPAG<0 : NOL = MAXLIG : Endif
+
+#La gestion de la devise change, on utilisera maintenant la devise référentiel
+#comme devise de référence pour l'affichage du solde .
+
+# Initialisation (Devise)
+XDEV = 0
+Gosub INIT
+If GRP & !COHGRP & CHGPAG=1
+ Call MESSAGE(mess(64,109,1)) From GESECRAN : # Les exercices de ce groupe sont décalés, pas de soldes
+Endif
+
+# Flag de gestion des clôtures italiennes
+FLGCLO = ([F:LED]ENDVCR=2)
+
+#If !GRP
+# [M:CPT1]DEVISE = DEVLED
+#Else
+# [M:CPT1]DEVISE = TDEVLED(1)
+# If [M:CPT1]DEVISE=""
+#  [M:CPT1]DEVISE = [M:CPT1]CURLED
+# Else
+#  For I=2 To NBSITE
+#   If TDEVLED(1)<>TDEVLED(I) : [M:CPT1]DEVISE = [M:CPT1]CURLED : XDEV=1 : Break : Endif
+#  Next I
+# Endif
+#Endif
+
+[M:CPT1]SYSCUR = [M:CPT1]CURLED
+
+# Filtres
+Gosub FILTRE
+If PROGSPE<>""
+ ACTION = "FILTRE" : Gosub ACTION From =PROGSPE
+Endif
+
+# Link...
+If CHGPAG>0
+ SUITE = 1
+ If CHGPAG=1 : RETOUR=1 : Elsif CHGPAG=2 : RETOUR=2 : Endif
+ Case [M:CCPT]TRI
+  When 2 : # Lettre
+   If [M:CPT1]COMPTE=""
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR;[F:DAE]CPY;[F:DAE]MTC;[F:DAE]ACCNUM
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR;[F:DAE]MTC;[F:DAE]ACCNUM
+    Endif
+   Else
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC;[F:DAE]BPR;[F:DAE]CPY;[F:DAE]MTC;[F:DAE]ACCNUM
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC;[F:DAE]BPR;[F:DAE]MTC;[F:DAE]ACCNUM
+    Endif
+   Endif
+  When 3 : # Echéance
+   If [M:CPT1]COMPTE=""
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR;[F:DAE]CPY;[F:HAE]DUDDAT;[F:DAE]ACCNUM
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR;[F:HAE]DUDDAT;[F:DAE]ACCNUM
+    Endif
+   Else
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC;[F:DAE]BPR;[F:DAE]CPY;[F:HAE]DUDDAT;[F:DAE]ACCNUM
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC;[F:DAE]BPR;[F:HAE]DUDDAT;[F:DAE]ACCNUM
+    Endif
+   Endif
+  When Default : # Date
+   If [M:CPT1]COMPTE=""
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR;[F:DAE]CPY;[F:DAE]ACCDAT;[F:DAE]ACCNUM
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR;[F:DAE]ACCDAT;[F:DAE]ACCNUM
+    Endif
+   Else
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC;[F:DAE]BPR;[F:DAE]CPY;[F:DAE]ACCDAT;[F:DAE]ACCNUM
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC;[F:DAE]BPR;[F:DAE]ACCDAT;[F:DAE]ACCNUM
+    Endif
+   Endif
+ Endcase
+Else
+ RETOUR = 1
+ If CHGPAG=-1 : SUITE=1 : Else SUITE=2 : Endif
+ Case [M:CCPT]TRI
+  When 2 : # Lettre
+   If [M:CPT1]COMPTE=""
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR Desc;[F:DAE]CPY Desc;[F:DAE]MTC Desc;[F:DAE]ACCNUM Desc
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR Desc;[F:DAE]MTC Desc;[F:DAE]ACCNUM Desc
+    Endif
+   Else
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC Desc;[F:DAE]BPR Desc;[F:DAE]CPY Desc;[F:DAE]MTC Desc;[F:DAE]ACCNUM Desc
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC Desc;[F:DAE]BPR Desc;[F:DAE]MTC Desc;[F:DAE]ACCNUM Desc
+    Endif
+   Endif
+  When 3 : # Echéance
+   If [M:CPT1]COMPTE=""
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR Desc;[F:DAE]CPY Desc;[F:HAE]DUDDAT Desc;[F:DAE]ACCNUM Desc
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR Desc;[F:HAE]DUDDAT Desc;[F:DAE]ACCNUM Desc
+    Endif
+   Else
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC Desc;[F:DAE]BPR Desc;[F:DAE]CPY Desc;[F:HAE]DUDDAT Desc;[F:DAE]ACCNUM Desc
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC Desc;[F:DAE]BPR Desc;[F:HAE]DUDDAT Desc;[F:DAE]ACCNUM Desc
+    Endif
+   Endif
+  When Default : # Date
+   If [M:CPT1]COMPTE=""
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR Desc;[F:DAE]CPY Desc;[F:DAE]ACCDAT Desc;[F:DAE]ACCNUM Desc
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]BPR Desc;[F:DAE]ACCDAT Desc;[F:DAE]ACCNUM Desc
+    Endif
+   Else
+    If !GRP
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC Desc;[F:DAE]BPR Desc;[F:DAE]CPY Desc;[F:DAE]ACCDAT Desc;[F:DAE]ACCNUM Desc
+    Else
+     Link [DAE] With [HAE]HAE0=[F:DAE]TYP;[F:DAE]NUM
+&    As [LNK3]
+&    Order By Key CLE = [F:DAE]ACC Desc;[F:DAE]BPR Desc;[F:DAE]ACCDAT Desc;[F:DAE]ACCNUM Desc
+    Endif
+   Endif
+  Endcase
+Endif
+If CHGPAG<>2 & CHGPAG<>-2
+    Raz [M:CPT2]
+Endif
+FLTRI=0
+
+# Chargement du tableau
+$BOUCLE
+CTLACS = 1
+
+#63406
+If !clalev([GTC]) : Local File GTABACC  [GTC] : Endif
+If !clalev([ACN]) : Local File ACONSULT [ACN] : Endif
+If [M:CCPT]ECRAN<>""
+ Call LECTURE("GTC",[M:CCPT]ECRAN,"CPT") From CONTOBJ
+Else
+ Call LECTURE("ACN","CPT","") From CONTOBJ
+ Call LECTURE("GTC",[F:ACN]SCRCOD,"CPT") From CONTOBJ
+Endif
+Local Decimal MLT(0..[F:GTC]NBRLIG),DIV(0..[F:GTC]NBRLIG)
+Local Integer NBLIN : NBLIN=0
+
+For [LNK3] Where evalue(FILTCPT)
+
+ OK = 1
+ If GRP
+  ISITE  = find([F:DAE]FCYLIN,TSITE(1..NBSITE))
+  DEVLED = TDEVLED(ISITE)
+  EDEB   = TEDEB(ISITE)
+  EFIN   = TEFIN(ISITE)
+  PFIN   = TPFIN(ISITE)
+ Endif
+
+ # 72673/72606 -------------Pour filtre sans pièce de clôture------------
+ FILTCLO = num$([F:HAE]FIY)+">="+num$(EDEB)-"&"-num$([F:HAE]FIY)+"<="+num$(EFIN)
+ If GRP
+  #--------------------------
+  #FILTCLO = "([F:HAE]FIY="+num$(EFIN)-"| [F:HAE]FIY="+num$(EDEB)+") & [F:HAE]PER>"+num$(PFIN)
+  If EFIN>EDEB & [M:CCPT]CLOTURE<>2
+   Local Integer CF,LF,LP :# CurrentFiscalyear / LastFiscalyear / LastPeriod
+   Local Date SDF, EDF    :# StartDateFiscalyear / EndDateFiscalyear
+   NBFIY=EFIN-EDEB+1
+   Local Integer FIYLST(1..NBFIY),FIYPEND(1..NBFIY)
+   CF=max(1,EDEB)
+   For I=1 To NBFIY
+    FIYLST(I)=CF
+    Call DATFIY(TSOC(ISITE),[F:DAE]LEDTYP,CF,SDF,EDF) From CPTSUB
+    Call GETPERIOD(TSOC(ISITE),[F:DAE]LEDTYP,EDF,LF,LP) From CPTSUB
+    FIYPEND(I)=LP
+    CF+=1
+   Next
+  Endif
+ Endif
+ If EFIN>EDEB & find([F:HAE]FIY,FIYLST(1..NBFIY))  : #Quand on rentre dans la fonction on peut tomber en erreur
+  FILTCLO -= "&"-num$([F:HAE]PER)+">"+num$(FIYPEND(find([F:HAE]FIY,FIYLST(1..NBFIY))))
+ Elsif EFIN=EDEB
+  FILTCLO -= "&"-num$([F:HAE]PER)+">"+num$(PFIN)
+ Endif
+
+ ###DBA le 21/05/03 : Sugg. 17917
+ ###Inclure tous les AN si on gère les écritures de clôture (Code Act. FIY=Actif)
+ #If [M:CCPT]CLOTURE<>2 & [F:HAE]FIY=EFIN & [F:HAE]PER>PFIN : OK=0
+ #Elsif [F:HAE]PER=0 & ([M:CCPT]ANOUV<>2 | [F:HAE]FIY<>EDEB) : OK=0
+ #Endif
+
+ # 72673/72606
+ #If [M:CCPT]CLOTURE<>2 & ([F:DAE]FIY=EFIN |[F:DAE]FIY=EDEB) & [F:DAE]PER>PFIN
+ If [M:CCPT]CLOTURE<>2 & evalue(FILTCLO)
+  OK=0
+ Else
+  If FLGCLO=0 : # Pièces de clôture actives
+   If [F:DAE]PER=0 & ([M:CCPT]ANOUV<>2 | [F:DAE]FIY<>EDEB) : OK=0 : Endif
+  Else
+   If [F:DAE]PER=0 & [M:CCPT]ANOUV<>2 : OK=0 : Endif
+  Endif
+ Endif
+
+ If [M:CCPT]FILTECT(0)<>"" & OK : OK *= evalue([M:CCPT]FILTECT(0)) : Endif
+ If [M:CCPT]FILTECT(1)<>"" & OK : OK *= evalue([M:CCPT]FILTECT(1)) : Endif
+ If [M:CCPT]FILTECT(2)<>"" & OK
+  Read [DAA]DAA0 = [F:DAE]TYP;[F:DAE]NUM;[F:DAE]LIN;[F:DAE]LEDTYP;1
+  If !fstat
+   OK *= evalue([M:CCPT]FILTECT(2))
+  Else
+   OK = 0
+  Endif
+ Endif
+
+ If [F:GAC]ACC<>[F:DAE]ACC :  Read [GAC]GAC0 = [F:DAE]COA;[F:DAE]ACC : Endif
+ If [F:GAC]ACS<>""
+  Call CONSACC([F:GAC]ACS,DROIT) From CPTSUB
+  If !DROIT : OK= 0  : CTLACS=0 : Endif
+ Endif
+ If OK : GPOINT = "CONTROLE" : Gosub ENTREE From EXEFNC : Endif
+ If OK
+  If FLTRI
+   If [F:DAE]ACCNUM<>DEBNUM : RETOUR=2 : Endif
+   FLTRI=2 : Break
+  Endif
+  If NBLU=1
+   If CHGPAG=2 or CHGPAG=-2 : Raz [M:CPT2] : Endif
+   NBLU=2
+  Endif
+  If CHGPAG>0
+   If NOL>=MAXLIG-1 : SUITE=2 : Break : Endif
+   NOL += 1
+   If NOL=0
+    DEBNUM = [F:DAE]ACCNUM
+    DEBDAT = [F:DAE]ACCDAT
+    DEBMTC = [F:DAE]MTC
+    DEBDUD = [F:HAE]DUDDAT
+   Endif
+   FINNUM = [F:DAE]ACCNUM
+   FINDAT = [F:DAE]ACCDAT
+   FINMTC = [F:DAE]MTC
+   FINDUD = [F:HAE]DUDDAT
+  Else
+   If NOL<=0 : RETOUR = 2 : Break : Endif
+   NOL -= 1
+   If NOL=MAXLIG-1
+    FINNUM = [F:DAE]ACCNUM
+    FINDAT = [F:DAE]ACCDAT
+    FINMTC = [F:DAE]MTC
+    FINDUD = [F:HAE]DUDDAT
+   Endif
+   DEBNUM = [F:DAE]ACCNUM
+   DEBDAT = [F:DAE]ACCDAT
+   DEBMTC = [F:DAE]MTC
+   DEBDUD = [F:HAE]DUDDAT
+  Endif
+  nolign = NOL+1
+
+  NBLIN=nolign
+  MLT(NOL)=[F:HAE]RATMLT([F:DAE]LEDTYP-1)
+  DIV(NOL)=[F:HAE]RATDIV([F:DAE]LEDTYP-1)
+  [M:CPT2]FNLPSTNUMW(NOL)=[F:HAE]FNLPSTNUM([F:DAE]LEDTYP-1)
+  [M:CPT2] = [F:HAE]
+  [M:CPT2] = [F:DAE]
+  [M:CPT2]DEVLED(NOL)=[F:DAE]CURLED
+  [M:CPT2]CREUSR(NOL) = [F:HAE]CREUSR
+  [M:CPT2]UPDUSR(NOL) = [F:HAE]UPDUSR
+  LIGANA = 0
+  For [DAA]DAA0 Where TYP=[F:DAE]TYP & NUM=[F:DAE]NUM & LIN=[F:DAE]LIN & LEDTYP=[F:DAE]LEDTYP
+   LIGANA += 1
+   If LIGANA = 1 : # On visualise les sections de la première ligne
+    For AX=1 To dim([F:DAA]DIE)
+     Assign "[M:CPT2]CCE"+num$(AX)+"("+num$(NOL)+")" With [F:DAA]CCE(AX-1)
+    Next AX
+    If [F:DAE]DSP<>"" : Break : Endif : # Répartition selon clé
+   Else
+    [M:CPT2]DSP(NOL) = "$" : Break
+   Endif
+  Next
+  [M:CPT2]CURCPY(NOL) = DEVLED
+  If [F:DAE]SNS=1
+   [M:CPT2]DEBIT (NOL)  = [F:DAE]AMTCUR
+   [M:CPT2]DEBLED(NOL)  = [F:DAE]AMTLED
+  Else
+   [M:CPT2]CREDIT(NOL)  = [F:DAE]AMTCUR
+   [M:CPT2]CDTLED(NOL)  = [F:DAE]AMTLED
+  Endif
+ Endif
+Next : # [LNK3]
+
+For I=0 To NBLIN-1
+ Assign "[M:CPT2]RATMLT("+num$(I)+")" With MLT(I)
+ Assign "[M:CPT2]RATDIV("+num$(I)+")" With DIV(I)
+Next
+
+If [M:CPT1]COMPTE=""
+ FINACC = [F:DAE]ACC
+Endif
+
+# Changement d'ordre de tri
+If TRICUR<>[M:CCPT]TRI
+ If CHGPAG=3 & !FLTRI
+  FLTRI=1 : CHGPAG=1 : Gosub FILTRE : CHGPAG=3 : RETOUR=1 : Goto BOUCLE
+ Endif
+ TRICUR=[M:CCPT]TRI
+Endif
+
+# Calcul du solde en entête
+#Si devise de selection <> devise de référentiel => DEVAFF=devise de sélection
+
+# Gestion de devise /t au solde à reprendre.
+# pour info : [M:CPT1]CURSEL => devise de selection
+#             [M:CPT1]CURLED => devise de référentiel
+#             [M:CPT1]DEVISE => devise affichée du solde
+# CAS 1 =>  si la devise de sélection est VIDE :
+#-          Etape 1 : Balance est lue sans filtre sur la devise
+#-          Etape 2 : Solde est calculé via DEBLED()-CDTLED()
+#-          Etape 3 : Affichage de ce solde.
+#
+#CAS 2 => si la devise de sélection est renseigné :
+#-          Etape 1 : Balance est lue en filtrant les mouvements sur la devise
+#-          Etape 2 : Solde était calculé via DEBLED()-CDTLED(),
+#                     CP propose à juste titre d'utiliser ici DEB()-CDT()
+#-          Etape 3 : Le solde est convertît dans la devise de sélection.
+# * sauf dans le cas d'un groupe le solde et calculé en devise de référentiel.
+## Dans le cas de regroupement de sites, toutes les sociétés du groupe sont associées à la même
+## devise de référentiel (contrôle fait sur le champ LEDTYP).
+
+Raz [M:CPT1]SOLDE, [M:CPT1]LIBSOL
+If dim([M:SOL1]DAT)>0 : Raz [M:SOL1] : Endif
+
+If COHGRP
+
+ DEVLED=[M:CPT1]CURLED
+
+# Issue X3-116770
+# Issue X3-146607 If [V]GCNSEXPORTXLS=[V]CST_ANO
+If [V]GCNSEXPORTXLS <> [V]CST_AYES
+ If !GRP
+  Call SOLDAT([M:CPT1]GROUPE,[M:CPT1]COLLEC,[M:CPT1]COMPTE,[M:CPT1]TIERS
+&            ,[M:CPT1]LEDTYP,[M:CPT1]CPY,[M:CPT1]FCY,[M:CPT1]CURSEL
+&            ,COURTYP,[M:CPT1]DATFIN,[M:CPT1]SOLDE)
+ Else
+  Call SOLDAT2([M:CPT1]GROUPE,[M:CPT1]COLLEC,[M:CPT1]COMPTE,[M:CPT1]TIERS
+&             ,NBSITE,TSITE,[M:CPT1]LEDTYP,[M:CPT1]CURSEL
+&             ,COURTYP,[M:CPT1]DATFIN,[M:CPT1]SOLDE)
+ Endif
+Endif
+# End issue X3-116770
+
+ If [M:CPT1]CURSEL=""
+  [M:CPT1]DEVISE=DEVLED
+ Else
+  [M:CPT1]DEVISE=[M:CPT1]CURSEL
+ Endif
+ Call LECTURE("TCU",[M:CPT1]DEVISE,"") From CONTOBJ
+ If [M:CPT1]SOLDE>=0
+  [M:CPT1]LIBSOL = "D"+right$(format$("N3:"+[F:TCU]CURFMT1,[M:CPT1]SOLDE),2)
+ Else
+  [M:CPT1]SOLDE  = -[M:CPT1]SOLDE
+  [M:CPT1]LIBSOL = "C"+right$(format$("N3:"+[F:TCU]CURFMT1,[M:CPT1]SOLDE),2)
+ Endif
+
+ CPTCUR    = [M:CPT1]COMPTE
+ TRSCUR    = [M:CPT1]TIERS
+ COLCUR    = [M:CPT1]COLLEC
+ GRPCUR    = [M:CPT1]GROUPE
+ CPYCUR    = [M:CPT1]CPY
+ FCYCUR    = [M:CPT1]FCY
+ DDCUR     = [M:CPT1]DATDEB
+ DFCUR     = [M:CPT1]DATFIN
+ CURSEL    = [M:CPT1]CURSEL
+ LEDTYPCUR = [M:CPT1]LEDTYP
+ COACUR    = [M:CPT1]COA
+
+# Remplissage 2ème onglet sur la première page
+# # Filled in the 2nd tab
+# Issue X3-116770 - 2019-03-08 by BEFOU : Perf add [V]GCNSEXPORTXLS=[V]CST_ANO
+
+ # Issue X3-146607 If (CHGPAG=1 or CHGPAG=3) & dim([M:SOL1]DAT)>0 & [V]GCNSEXPORTXLS=[V]CST_ANO
+ If (CHGPAG=1 or CHGPAG=3) & dim([M:SOL1]DAT)>0 & [V]GCNSEXPORTXLS<>[V]CST_AYES
+  Raz [M:SOL1]
+  Call LECTURE("CPY",CPYCUR,"") From CONTOBJ
+  If [F:CPY]CPYLEGFLG<>1
+   Call GETPERSOC(CPYCUR,LEDTYPCUR,DDCUR,EXERCICE,PERIODE) From CPTSUB
+   EDEB = EXERCICE
+   Call GETPERSOC(CPYCUR,LEDTYPCUR,DFCUR,EXERCICE,PERIODE) From CPTSUB
+   EFIN = EXERCICE
+   Call SOLDCPT(LEDTYPCUR,COACUR,GRPCUR,COLCUR,CPTCUR,TRSCUR,CPYCUR,FCYCUR,DEVLED,CURSEL,EDEB,EFIN,XDEV) From SOLDCPT
+   # Remplissage du 2ème bloc : si total des consultations est sous forme d'onglet.
+   If func AFNC.ACTIV("CNT")
+    Gosub SOLDPCE
+   Endif
+  Else
+  ############################################################################################
+  # Cas des Regroupements de sites :                                                         #
+  #     Si on ne posséde pas une devise unique                                               #
+  #       pour l'ensemble des sociétés juridiques des sites faisant partie du regroupement   #
+  #  &    que la devise souhaitée est non renseignée                                         #
+  ############################################################################################
+  #  + Bug sur les périodes incompatibles
+  ############################################################################################
+#  Call CONTEXE(CPYCUR,LEDTYPCUR,DDCUR,DFCUR,OK) From CONSSUB
+#  If !OK : # Périodes incompatibles sur la société
+#   GERR=1 : GMESSAGE = mess(11,101,1)-[M:CPT1]CPY
+#  Elsif [M:CPT1]CURSEL="" & XDEV    # Devises hétérogènes pour ce regroupement
+   If [M:CPT1]CURSEL="" & XDEV    # Devises hétérogènes pour ce regroupement
+    GERR=1 : GMESSAGE = mess(54,109,1)-[M:CPT1]CPY
+   Else
+    NBSITE = 0
+    For [FGR]FGR0 Where CPY = CPYCUR
+     Call LECTURE("FCY",[F:FGR]FCY,"") From CONTOBJ
+     If [F:FCY]FINFLG=2
+      Filter [FIY] Where CPY=[F:FCY]LEGCPY & LEDTYP=LEDTYPCUR
+      Read [FIY]FIY0 First
+      If [M:CPT1]DATDEB>=[F:FIY]FIYSTR : DDEB = [M:CPT1]DATDEB : Else : DDEB = [F:FIY]FIYSTR : Endif
+      Read [FIY]FIY0 Last
+      If [M:CPT1]DATFIN<=[F:FIY]FIYEND : DFIN = [M:CPT1]DATFIN : Else : DFIN = [F:FIY]FIYEND : Endif
+      Filter [FIY]
+      If DDEB<=DFIN
+       NBSITE += 1
+       TSITE(NBSITE) = [F:FGR]FCY
+      Endif
+     Endif
+    Next : # [FGR]
+    Call SOLDCPT2(LEDTYPCUR,COACUR,GRPCUR,COLCUR,CPTCUR,TRSCUR,NBSITE,TSITE,DEVLED,CURSEL,[M:CPT1]DATDEB,[M:CPT1]DATFIN,XDEV) From SOLDCPT
+   # Remplissage du 2èmer bloc
+    If func AFNC.ACTIV("CNT")    # Si total des consultations est sous forme d'onglet.
+      Gosub SOLDPCE
+    Endif
+   Endif
+  Endif
+  Affzo [SOL1]
+ Endif
+
+Elsif (CHGPAG=1 or CHGPAG=3)
+ If dim([M:SOL1]DAT)>0 : Effzo [SOL1] : Endif
+Endif : # COHGRP
+
+If !CTLACS
+ Call MESSAGE(mess(55,109,1)) From GESECRAN
+ # Vos résultats sont restreints à vos droits utilisateurs
+Endif
+Return
+
+$SOLDPCE
+OKCRS=0
+For [LNK3] Where evalue(FILTCPT)
+ OK = 1
+ If GRP
+  ISITE  = find([F:DAE]FCYLIN,TSITE(1..NBSITE))
+  DEVLED = TDEVLED(ISITE)
+  EDEB   = TEDEB(ISITE)
+  EFIN   = TEFIN(ISITE)
+  PFIN   = TPFIN(ISITE)
+ Endif
+ # 72673/72606 -------------Pour filtre sans pièce de clôture------------
+ FILTCLO = num$([F:HAE]FIY)+">="+num$(EDEB)-"&"-num$([F:HAE]FIY)+"<="+num$(EFIN)
+ If GRP
+  #--------------------------
+  #FILTCLO = "([F:HAE]FIY="+num$(EFIN)-"| [F:HAE]FIY="+num$(EDEB)+") & [F:HAE]PER>"+num$(PFIN)
+  If EFIN>EDEB & [M:CCPT]CLOTURE<>2
+   Local Integer CF,LF,LP :# CurrentFiscalyear / LastFiscalyear / LastPeriod
+   Local Date SDF, EDF    :# StartDateFiscalyear / EndDateFiscalyear
+   NBFIY=EFIN-EDEB+1
+   Local Integer FIYLST(1..NBFIY),FIYPEND(1..NBFIY)
+   CF=max(1,EDEB)
+   For I=1 To NBFIY
+    FIYLST(I)=CF
+    Call DATFIY(TSOC(ISITE),[F:DAE]LEDTYP,CF,SDF,EDF) From CPTSUB
+    Call GETPERIOD(TSOC(ISITE),[F:DAE]LEDTYP,EDF,LF,LP) From CPTSUB
+    FIYPEND(I)=LP
+    CF+=1
+   Next
+  Endif
+ Endif
+ If EFIN>EDEB & find([F:HAE]FIY,FIYLST(1..NBFIY))  : #Quand on rentre dans la fonction on peut tomber en erreur
+  FILTCLO -= "&"-num$([F:HAE]PER)+">"+num$(FIYPEND(find([F:HAE]FIY,FIYLST(1..NBFIY))))
+ Elsif EFIN=EDEB
+  FILTCLO -= "&"-num$([F:HAE]PER)+">"+num$(PFIN)
+ Endif
+
+
+ #If [M:CCPT]CLOTURE<>2 & ([F:DAE]FIY=EFIN |[F:DAE]FIY=EDEB) & [F:DAE]PER>PFIN
+ If [M:CCPT]CLOTURE<>2 & evalue(FILTCLO)
+  OK=0
+ Else
+  If FLGCLO=0 : # Pièces de clôtures italiennes
+   If [F:DAE]PER=0 & ([M:CCPT]ANOUV<>2 | [F:DAE]FIY<>EDEB) : OK=0 : Endif
+   Else
+    If [F:DAE]PER=0 & [M:CCPT]ANOUV<>2 : OK=0 : Endif
+   Endif
+  Endif
+  If [M:CCPT]FILTECT(0)<>"" & OK : OK *= evalue([M:CCPT]FILTECT(0)) : Endif
+  If [M:CCPT]FILTECT(1)<>"" & OK : OK *= evalue([M:CCPT]FILTECT(1)) : Endif
+  If [M:CCPT]FILTECT(2)<>"" & OK
+   Read [DAA]DAA0 = [F:DAE]TYP;[F:DAE]NUM;[F:DAE]LIN;[F:DAE]LEDTYP;1
+   If !fstat
+    OK *= evalue([M:CCPT]FILTECT(2))
+   Else
+    OK = 0
+   Endif
+  Endif
+  If [F:GAC]ACC<>[F:DAE]ACC :  Read [GAC]GAC0 = [F:DAE]COA;[F:DAE]ACC : Endif
+  If [F:GAC]ACS<>""
+   Call CONSACC([F:GAC]ACS,DROIT) From CPTSUB
+   If !DROIT : OK= 0  : CTLACS=0 : Endif
+  Endif
+  If OK : GPOINT = "CONTROLE" : Gosub ENTREE From EXEFNC : Endif
+  If OK
+   If [F:DAE]SNS=1
+    [M:SOL1]DEBLOC += [F:DAE]AMTLED
+    If [M:CPT1]CURSEL<>""
+     [M:SOL1]DEBCUR += [F:DAE]AMTCUR
+    Endif
+   Else
+    [M:SOL1]CRELOC += [F:DAE]AMTLED
+    If [M:CPT1]CURSEL<>""
+     [M:SOL1]CRECUR += [F:DAE]AMTCUR
+    Endif
+   Endif
+  Endif
+ Next
+ [M:SOL1]DEVLOC  = [M:CPT1]CURLED
+ [M:SOL1]DEVLOC2 = [M:CPT1]CURLED
+ [M:SOL1]DEVCUR  = [M:CPT1]CURSEL
+ [M:SOL1]DEVCUR2 = [M:CPT1]CURSEL
+ [M:SOL1]SNSSOL  = ""
+ [M:SOL1]SNSSOL2 = ""
+ If [M:SOL1]DEBLOC>[M:SOL1]CRELOC
+  [M:SOL1]SOLLOC = [M:SOL1]DEBLOC-[M:SOL1]CRELOC
+  If [M:CPT1]CURSEL<>"" : [M:SOL1]SOLCUR = [M:SOL1]DEBCUR-[M:SOL1]CRECUR : Endif
+  If [M:SOL1]SOLLOC<>0
+   [M:SOL1]SNSSOL  = mess(1,610,1) : # "D" : # Sens du solde en devise référentiel
+  Endif
+  If [M:SOL1]SOLCUR<>0
+   [M:SOL1]SNSSOL2 = mess(1,610,1) : # "D" : # Sens du solde en devise transaction (sélection)
+  Endif
+ Else
+  [M:SOL1]SOLLOC = [M:SOL1]CRELOC-[M:SOL1]DEBLOC
+  If [M:CPT1]CURSEL<>"" : [M:SOL1]SOLCUR = [M:SOL1]CRECUR-[M:SOL1]DEBCUR : Endif
+  If [M:SOL1]SOLLOC<>0
+   [M:SOL1]SNSSOL  = mess(2,610,1) : # "C"
+  Endif
+  If [M:SOL1]SOLCUR<>0
+   [M:SOL1]SNSSOL2 = mess(2,610,1)
+  Endif
+ Endif
+Return
+
+$APRES_CHOI
+I=find(REPONSE,LBOUT)
+If I<1 : Return : Endif
+If CBOUT(I-1)="O"
+ If dim([M:SOL1]DAT)>0
+  Raz [M:SOL1]
+  Gosub SOLDPCE
+ Endif
+Endif
+Return
+
+$INIT
+Call LECTURE("CPY",[M:CPT1]CPY,"") From CONTOBJ
+GRP=([F:CPY]CPYLEGFLG=1)
+If !GRP
+ DEVLED = [M:CPT1]CURLED
+ Call GETPERSOC([M:CPT1]CPY,[M:CPT1]LEDTYP,[M:CPT1]DATDEB,EXERCICE,PERIODE) From CPTSUB
+ EDEB = EXERCICE
+ Call GETPERSOC([M:CPT1]CPY,[M:CPT1]LEDTYP,[M:CPT1]DATFIN,EXERCICE,PERIODE) From CPTSUB
+ PFIN = PERIODE
+ EFIN = EXERCICE
+ COHGRP = 1
+ #---------------------------------------------
+ # 72673/72606 - Consultation sur plusieur exercice sans ecriture de cloture
+ If EFIN>EDEB
+  Local Integer CF,LF,LP :# CurrentFiscalyear / LastFiscalyear / LastPeriod
+  Local Date SDF, EDF    :# StartDateFiscalyear / EndDateFiscalyear
+  NBFIY=EFIN-EDEB+1
+  Local Integer FIYLST(1..NBFIY),FIYPEND(1..NBFIY)
+  CF=max(1,EDEB)
+  For I=1 To NBFIY
+   FIYLST(I)=CF
+   Call DATFIY([M:CPT1]CPY,[M:CPT1]LEDTYP,CF,SDF,EDF) From CPTSUB
+   Call GETPERIOD([M:CPT1]CPY,[M:CPT1]LEDTYP,EDF,LF,LP) From CPTSUB
+   FIYPEND(I)=LP
+   CF+=1
+  Next
+ Endif
+ #---------------------------------------------
+Else
+ NBSITE = 0
+ COHGRP = 1
+ For [FGR]FGR0 Where CPY = [M:CPT1]CPY
+  Call LECTURE("FCY",[F:FGR]FCY,"") From CONTOBJ
+  If [F:FCY]FINFLG=2
+   Filter [FIY] Where CPY=[F:FCY]LEGCPY & LEDTYP=[M:CPT1]LEDTYP
+   Read [FIY]FIY0 First
+   If [M:CCPT]DATDEB>=[F:FIY]FIYSTR : DDEB=[M:CPT1]DATDEB : Else DDEB=[F:FIY]FIYSTR : Endif
+   Read [FIY]FIY0 Last
+   If [M:CCPT]DATFIN<=[F:FIY]FIYEND : DFIN=[M:CPT1]DATFIN : Else DFIN=[F:FIY]FIYEND : Endif
+   Filter [FIY]
+   If DDEB<=DFIN
+    NBSITE+=1
+    TSITE(NBSITE) = [F:FGR]FCY
+    # 72673/72606 - Consultation sur plusieur exercice sans ecriture de cloture
+    TSOC(NBSITE) = [F:FCY]LEGCPY
+    #--
+    Call GETPERSOC([F:FCY]LEGCPY,[M:CPT1]LEDTYP,DDEB,EXERCICE,PERIODE) From CPTSUB
+    TEDEB(NBSITE) = EXERCICE
+    Call GETPERSOC([F:FCY]LEGCPY,[M:CPT1]LEDTYP,DFIN,EXERCICE,PERIODE) From CPTSUB
+    TEFIN(NBSITE) = EXERCICE
+    TPFIN(NBSITE) = PERIODE
+    TDEVLED(NBSITE) = [M:CPT1]CURLED
+    Read [FIY]FIY0 = [F:FCY]LEGCPY;[M:CPT1]LEDTYP;EXERCICE
+    If NBSITE=1
+     DEBEX = [F:FIY]FIYSTR
+    Elsif DEBEX<>[F:FIY]FIYSTR
+     COHGRP = 0
+    Endif
+   Endif
+  Endif
+ Next : # [FGR]
+Endif
+Return
+
+
+$FILTRE
+Raz FILTCPT, IFILT
+# Société & Site
+If !GRP
+ Call ADDCRIT(FILTCPT,IFILT,"CPY",'[F:DAE]CPY="'+[M:CPT1]CPY+'"'," & ") From GOBJSUB
+ If [M:CPT1]FCY<>""
+  Call ADDCRIT(FILTCPT,IFILT,"FCY",'[F:DAE]FCYLIN="'+[M:CPT1]FCY+'"'," & ") From GOBJSUB
+ Endif
+Else
+ # Groupement de sites
+ Call ADDCRIT(FILTCPT,IFILT,"FCY",'find([F:DAE]FCYLIN,TSITE(1..NBSITE))'," & ") From GOBJSUB
+Endif
+
+# Type de référentiel
+If [M:CPT1]LEDTYP<>0
+ Call ADDCRIT(FILTCPT,IFILT,"LEDTYP",'[F:DAE]LEDTYP='+num$([M:CPT1]LEDTYP)," & ") From GOBJSUB
+Endif
+
+# Date d'échéance
+If [M:CPT1]DATDEB<>[0/0/0]
+ Call ADDCRIT(FILTCPT,IFILT,"DATDEB",'[F:DAE]ACCDAT>=['+format$(GFMD,[M:CPT1]DATDEB)+']'," & ") From GOBJSUB
+Endif
+If [M:CPT1]DATFIN<>[0/0/0]
+ Call ADDCRIT(FILTCPT,IFILT,"DATFIN",'[F:DAE]ACCDAT<=['+format$(GFMD,[M:CPT1]DATFIN)+']'," & ") From GOBJSUB
+Endif
+
+# Compte / Tiers
+If [M:CPT1]COMPTE<>""
+Call ADDCRIT(FILTCPT,IFILT,"ACC",'[F:DAE]ACC="'+[M:CPT1]COMPTE+'" & [F:DAE]BPR=""'," & ") From GOBJSUB
+Else
+ # Collectif et groupe de collectif
+ If [M:CPT1]COLLEC<>""
+  Call ADDCRIT(FILTCPT,IFILT,"COLLEC",'[F:DAE]SAC="'+[M:CPT1]COLLEC+'"'," & ") From GOBJSUB
+  If [M:CPT1]TIERS<>""
+  #001.ini
+  If num$([M:CPT1]ZTERPAG)='2' Then
+   Call ADDCRIT(FILTCPT,IFILT,"BPR",'left$([F:DAE]DES,len([M:CPT1]TIERS))="'+[M:CPT1]TIERS+'"'," & ") From GOBJSUB
+  Else
+   Call ADDCRIT(FILTCPT,IFILT,"BPR",'[F:DAE]BPR="'+[M:CPT1]TIERS+'"'," & ") From GOBJSUB
+  Endif
+  #001.fin
+  Endif
+  Read [GAC]GAC1 = [M:CPT1]COA;[M:CPT1]COLLEC
+  If !fstat
+   Call ADDCRIT(FILTCPT,IFILT,"ACC",'[F:DAE]ACC="'+[F:GAC]ACC+'"'," & ") From GOBJSUB
+  Endif
+ Elsif [M:CPT1]GROUPE<>""
+  Call ADDCRIT(FILTCPT, IFILT,"COLLEC",'find([F:DAE]SAC',"&") From GOBJSUB
+  For [GSC]GSC0 Where COA=[M:CPT1]COA & GRU=[M:CPT1]GROUPE
+   Call ADDCRIT(FILTCPT,IFILT,"GROUPE",'"'+[F:GSC]SAC+'"',",") From GOBJSUB
+  Next
+  Call ADDCRIT(FILTCPT,IFILT,"GROUPE",')',"") From GOBJSUB
+  #001.INI
+  If num$([M:CPT1]ZTERPAG)='2' Then
+    Call ADDCRIT(FILTCPT,IFILT,"BPR",'left$([F:DAE]DES,len([M:CPT1]TIERS))="'+[M:CPT1]TIERS+'"'," & ") From GOBJSUB
+  Else
+    Call ADDCRIT(FILTCPT,IFILT,"BPR",'[F:DAE]BPR="'+[M:CPT1]TIERS+'"'," & ") From GOBJSUB
+  Endif
+  #001.FIN
+ Else
+ #001.ini
+ If num$([M:CPT1]ZTERPAG)='2' Then
+    Call ADDCRIT(FILTCPT,IFILT,"BPR",'left$([F:DAE]DES,len([M:CPT1]TIERS))="'+[M:CPT1]TIERS+'"'," & ") From GOBJSUB
+  Else
+    Call ADDCRIT(FILTCPT,IFILT,"BPR",'[F:DAE]BPR="'+[M:CPT1]TIERS+'"'," & ") From GOBJSUB
+ Endif
+ #001.fin
+ Endif
+Endif
+
+# Autres conditions à partir de la fenetre critières
+Case [M:CCPT]TYPECR
+ When 2 :  Call ADDCRIT(FILTCPT,IFILT,"MTC",'[F:DAE]MTC>="A" & [F:DAE]MTC<="ZZZZZ"'," & ") From GOBJSUB
+ When 3 :  Call ADDCRIT(FILTCPT,IFILT,"MTC",'([F:DAE]MTC<"A" | [F:DAE]MTC>"ZZZZZ")'," & ") From GOBJSUB
+Endcase
+If [M:CCPT]MTC<>""
+ Case [M:CCPT]TYPECR
+  When 1
+   Call ADDCRIT(FILTCPT,IFILT,"MTC",'[F:DAE]MTC="'+[M:CCPT]MTC+'"'," & ") From GOBJSUB
+  When 2
+   Call ADDCRIT(FILTCPT,IFILT,"MTC",'[F:DAE]MTC="'+toupper([M:CCPT]MTC)+'"'," & ") From GOBJSUB
+  When 3
+   Call ADDCRIT(FILTCPT,IFILT,"MTC",'[F:DAE]MTC="'+tolower([M:CCPT]MTC)+'"'," & ") From GOBJSUB
+ Endcase
+Endif
+If [M:CCPT]SIMUL<>1
+ Call ADDCRIT(FILTCPT,IFILT,"CAT",'([F:HAE]CAT<3 | [F:HAE]CAT=4)'," & ") From GOBJSUB
+Else
+ Call ADDCRIT(FILTCPT,IFILT,"CAT",'([F:HAE]CAT=1 | [F:HAE]CAT=4)'," & ") From GOBJSUB
+Endif
+If [M:CCPT]CURSEL<>""
+ Call ADDCRIT(FILTCPT,IFILT,"CUR",'[F:HAE]CUR="'+[M:CCPT]CURSEL+'"'," & ") From GOBJSUB
+Endif
+If [M:CCPT]JOU<>""
+ Call ADDCRIT(FILTCPT,IFILT,"JOU",'[F:HAE]JOU="'+[M:CCPT]JOU+'"'," & ") From GOBJSUB
+Endif
+If [M:CCPT]TYP<>""
+ Call ADDCRIT(FILTCPT,IFILT,"TYP",'[F:HAE]TYP="'+[M:CCPT]TYP+'"'," & ") From GOBJSUB
+Endif
+If [M:CCPT]BPRVCR<>""
+ Call ADDCRIT(FILTCPT,IFILT,"BPRVCR",'[F:HAE]BPRVCR="'+[M:CCPT]BPRVCR+'"'," & ") From GOBJSUB
+Endif
+If [M:CCPT]REF<>""
+ Call ADDCRIT(FILTCPT,IFILT,"REF",'[F:HAE]REF="'+[M:CCPT]REF+'"'," & ") From GOBJSUB
+Endif
+
+
+
+
+If CPTCUR=[M:CPT1]COMPTE & TRSCUR=[M:CPT1]TIERS & GRPCUR=[M:CPT1]GROUPE
+ Case CHGPAG
+  When 3 : # Rafraichissement
+   If [M]NBLIG=0 : Return : Endif
+   Case [M:CCPT]TRI
+    When 2 : # Lettre
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&       '([F:DAE]MTC>="'+DEBMTC+'" & ([F:DAE]ACCNUM>='+num$(DEBNUM)+
+&       '|[F:DAE]MTC>"'+DEBMTC+'"))'," & ") From GOBJSUB
+    When 3 : # Echéance
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&       '([F:HAE]DUDDAT>=['+format$(GFMD,DEBDUD)+'] & ([F:DAE]ACCNUM>='+num$(DEBNUM)+
+&       '|[F:HAE]DUDDAT>['+format$(GFMD,DEBDUD)+']))'," & ") From GOBJSUB
+    When Default : # Date
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&      '([F:DAE]ACCDAT>=['+format$(GFMD,DEBDAT)+'] & ([F:DAE]ACCNUM>='+num$(DEBNUM)+
+&      '|[F:DAE]ACCDAT>['+format$(GFMD,DEBDAT)+']))'," & ") From GOBJSUB
+   Endcase
+  When 2 : # Suite
+   Case [M:CCPT]TRI
+    When 2 : # Lettre
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&       '([F:DAE]MTC>="'+FINMTC+'" & ([F:DAE]ACCNUM>'+num$(FINNUM)+
+&       '|[F:DAE]MTC>"'+FINMTC+'"))'," & ") From GOBJSUB
+    When 3 : # Echéance
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&       '([F:HAE]DUDDAT>=['+format$(GFMD,FINDUD)+'] & ([F:DAE]ACCNUM>'+num$(FINNUM)+
+&       '|[F:HAE]DUDDAT>['+format$(GFMD,FINDUD)+']))'," & ") From GOBJSUB
+    When Default : # Date
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&       '([F:DAE]ACCDAT>=['+format$(GFMD,FINDAT)+'] & ([F:DAE]ACCNUM>'+num$(FINNUM)+
+&       '|[F:DAE]ACCDAT>['+format$(GFMD,FINDAT)+']))'," & ") From GOBJSUB
+   Endcase
+  When -2 : # Retour
+   Case [M:CCPT]TRI
+    When 2 : # Lettre
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&      '([F:DAE]MTC<="'+DEBMTC+'" & ([F:DAE]ACCNUM<'+num$(DEBNUM)+
+&      '|[F:DAE]MTC<"'+DEBMTC+'"))'," & ") From GOBJSUB
+    When 3 : # Echéance
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&      '([F:HAE]DUDDAT<=['+format$(GFMD,DEBDUD)+'] & ([F:DAE]ACCNUM<'+num$(DEBNUM)+
+&      '|[F:HAE]DUDDAT<['+format$(GFMD,DEBDUD)+']))'," & ") From GOBJSUB
+    When Default : # Date
+     Call ADDCRIT(FILTCPT, IFILT,"ACCNUM",
+&      '([F:DAE]ACCDAT<=['+format$(GFMD,DEBDAT)+'] & ([F:DAE]ACCNUM<'+num$(DEBNUM)+
+&      '|[F:DAE]ACCDAT<['+format$(GFMD,DEBDAT)+']))'," & ") From GOBJSUB
+   Endcase
+ Endcase
+Endif
+Return
+
+$AV_MAGNETO
+If [M:CPT1]COLLEC<>"" or [M:CPT1]GROUPE<>"" or [M:CPT1]TIERS<>""
+ #Dmd 59490
+ FILTRE=""
+ If [M:CPT1]COLLEC<>""
+  If !clalev([F:GAC]) : Local File GACCOUNT [GAC] : Endif
+  Read [GAC]GAC1 = [M:CPT1]COA;[M:CPT1]COLLEC
+  If !fstat
+   For I=0 To len(mess(0,277,1))-1
+    If [F:GAC]AUZBPR(I)=2
+     Case I+1
+      When 1 :# Client
+       FILTRE="BPCFLG=2"
+      When 2 :# Fournisseur
+       If FILTRE="" : FILTRE="BPSFLG=2" : Else : FILTRE-="| BPSFLG=2" : Endif
+      When 3 :# Transporteur
+       If FILTRE="" : FILTRE="BPTFLG=2" : Else : FILTRE-="| BPTFLG=2" : Endif
+      When 4 :# Factor
+       If FILTRE="" : FILTRE="FCTFLG=2" : Else : FILTRE-="| FCTFLG=2" : Endif
+      When 5 :# Représentant
+       If FILTRE="" : FILTRE="REPFLG=2" : Else : FILTRE-="| REPFLG=2" : Endif
+      When 6 :# tiers divers
+       If FILTRE="" : FILTRE="BPRACC=2" : Else : FILTRE-="| BPRACC=2" : Endif
+     Endcase
+    Endif
+   Next
+  Endif
+ Elsif [M:CPT1]GROUPE<>""
+  If !clalev([F:GSC]) : Local File GRPSAC   [GSC] : Endif
+  If !clalev([F:GAC]) : Local File GACCOUNT [GAC] : Endif
+  Local Integer K1,K2,K3,K4,K5,K6
+  K1=0 : K2=0 : K3=0 : K4=0 : K5=0 : K6=0
+  Filter [GSC] Where COA=[M:CPT1]COA & GRU=[M:CPT1]GROUPE
+  For [GSC]GSC0
+   Read [GAC]GAC1 = [F:GSC]COA;[F:GSC]SAC
+   If !fstat
+    For J=0 To len(mess(0,277,1))-1
+     If [F:GAC]AUZBPR(J)=2
+      Case J+1
+       When 1 : K1=1
+       When 2 : K2=1
+       When 3 : K3=1
+       When 4 : K4=1
+       When 5 : K5=1
+       When 6 : K6=1
+      Endcase
+     Endif
+    Next :#J
+   Endif
+  Next :#GSC0
+  If K1 : FILTRE="BPCFLG=2" : Endif
+  If K2 : If FILTRE="" : FILTRE="BPSFLG=2" : Else : FILTRE-="| BPSFLG=2" : Endif : Endif
+  If K3 : If FILTRE="" : FILTRE="BPTFLG=2" : Else : FILTRE-="| BPTFLG=2" : Endif : Endif
+  If K4 : If FILTRE="" : FILTRE="FCTFLG=2" : Else : FILTRE-="| FCTFLG=2" : Endif : Endif
+  If K5 : If FILTRE="" : FILTRE="REPFLG=2" : Else : FILTRE-="| REPFLG=2" : Endif : Endif
+  If K6 : If FILTRE="" : FILTRE="BPRACC=2" : Else : FILTRE-="| BPRACC=2" : Endif : Endif
+ Endif
+ NOMFIC = "BPARTNER"
+ ABFIC = "BPR"
+ CLE = "BPR0"
+ NBCMP = 1
+ CLECMP(0) = "BPRNUM"
+ CLEMSK(0) = "TIERS"
+ Default File [BPR]
+Else
+ NOMFIC = "GACCOUNT"
+ ABFIC = "GAC"
+ CLE = "GAC0"
+ NBCMP = 2
+ CLECMP(0) = "COA"
+ CLEMSK(0) = "COA"
+ CLECMP(1) = "ACC"
+ CLEMSK(1) = "COMPTE"
+ FILTRE='SAC<>2 & COA="'+[M]COA+'" & ENAFLG=2'
+Endif
+Return
+
+$SET_DERLU
+If NOMFIC="BPARTNER"
+ NOMFIC = "GACCOUNT"
+ ABFIC = "GAC"
+ CLE = "GAC0"
+ NBCMP = 2
+ CLECMP(0) = "COA"
+ CLEMSK(0) = "COA"
+ CLECMP(1) = "ACC"
+ CLEMSK(1) = "COMPTE"
+ FILTRE='SAC<>2 & COA="'+[M]COA+'" & ENAFLG=2'
+Endif
+Return
+
+$SETBOUT
+OK = ([M:CPT1]COMPTE<>"" or [M:CPT1]TIERS<>"")
+If OK
+ Call CONTEXE([M:CPT1]CPY,[M:CPT1]LEDTYP,[M:CPT1]DATDEB,[M:CPT1]DATFIN,OK) From CONSSUB
+Endif
+If !OK : Call VIREBOUT(CHAINE,"O") From GCONSULT : Endif
+# activation du zoom
+CHMEN+="12"
+Return
+
+$LISTE1
+If [M:CPT1]COLLEC<>"" | [M:CPT1]GROUPE<>"" | [M:CPT1]TIERS<>""
+ RPTCOD = "GLGRPAUX"
+Else
+ RPTCOD = "GLGRP"
+Endif
+Return
+
+$DEB_CRIT
+Local Char FILTRECRIT(250)(3)
+FILTRECRIT(0) = [M:CCPT]FILTECT(0)
+If FILTRECRIT(0)<>"" : [M:CCPT]CRITTET=2 : Else [M:CCPT]CRITTET=1 : Endif
+FILTRECRIT(1) = [M:CCPT]FILTECT(1)
+If FILTRECRIT(1)<>"" : [M:CCPT]CRITLIG=2 : Else [M:CCPT]CRITLIG=1 : Endif
+FILTRECRIT(2) = [M:CCPT]FILTECT(2)
+If FILTRECRIT(2)<>"" : [M:CCPT]CRITANA=2 : Else [M:CCPT]CRITANA=1 : Endif
+Local Integer TRICRIT
+TRICRIT = [M:CCPT]TRI
+Return
+
+$EXEBOUT2
+Case BOUT
+ When "P" : # En-tête
+  If [M:CCPT]FILTECT(0)<>"" & [M:CCPT]CRITTET<>2
+   [M:CCPT]CRITTET=2 : GNBAFF=1
+  Elsif [M:CCPT]FILTECT(0)="" & [M:CCPT]CRITTET=2
+   [M:CCPT]CRITTET=1 : GNBAFF=1
+  Endif
+ When "Q" : # Ligne
+  If [M:CCPT]FILTECT(1)<>"" & [M:CCPT]CRITLIG<>2
+   [M:CCPT]CRITLIG=2 : GNBAFF=1
+  Elsif [M:CCPT]FILTECT(1)="" & [M:CCPT]CRITLIG=2
+   [M:CCPT]CRITLIG=1 : GNBAFF=1
+  Endif
+ When "O" : # Analytique
+  If [M:CCPT]FILTECT(2)<>"" & [M:CCPT]CRITANA<>2
+   [M:CCPT]CRITANA=2 : GNBAFF=1
+  Elsif [M:CCPT]FILTECT(2)="" & [M:CCPT]CRITANA=2
+   [M:CCPT]CRITANA=1 : GNBAFF=1
+  Endif
+Endcase
+Return
+
+$FIN_CRIT
+Case REPONSE
+ When GSTAOK, GSTARET
+  If [M:CCPT]FILTECT(0)<>FILTRECRIT(0) |
+&    [M:CCPT]FILTECT(1)<>FILTRECRIT(1) |
+&    [M:CCPT]FILTECT(2)<>FILTRECRIT(2)
+   [L]CHANGE=2
+  Endif
+  If [M:CCPT]TRI<>TRICRIT
+   [L]CHANGE=2
+  Endif
+  If [M:CCPT]FILTECT(0)<>""
+   Onerrgo ERR_FILTECT
+   OK = evalue([M:CCPT]FILTECT(0))
+   Onerrgo
+  Endif
+  If [M:CCPT]FILTECT(1)<>""
+   Onerrgo ERR_FILTECT
+   OK = evalue([M:CCPT]FILTECT(1))
+   Onerrgo
+  Endif
+  If [M:CCPT]FILTECT(2)<>""
+   Onerrgo ERR_FILTECT
+   OK = evalue([M:CCPT]FILTECT(2))
+   Onerrgo
+  Endif
+ When GSTAFIN, GSTAESC
+  [M:CCPT]FILTECT(0) = FILTRECRIT(0)
+  [M:CCPT]FILTECT(1) = FILTRECRIT(1)
+  [M:CCPT]FILTECT(2) = FILTRECRIT(2)
+  [M:CCPT]TRI = TRICRIT
+Endcase
+Return
+
+$ERR_FILTECT
+Call ERREUR(mess(33,100,1)) From GESECRAN
+[L]CHANGE=1
+[M:CCPT]FILTECT(0) = FILTRE(0)
+[M:CCPT]FILTECT(1) = FILTRE(1)
+[M:CCPT]FILTECT(2) = FILTRE(2)
+Resume
+
+$AV_AFFICHE
+#Gestion de l'affichage des colonnes lors de changement d'écran
+Local Integer I, J
+Local Char MSKCOL(17) : MSKCOL=""
+Local Char VARMSK(15)(1..3) , VARABR(5)(1..3)
+I = 1 : J = 1
+Repeat
+ If masknam( I ) <> ""
+  VARMSK( J ) = masknam( I )
+  VARABR( J ) = maskabr( I )
+  If VARABR(J)="CPT2"
+   MSKCOL="W1"+masknam(I)
+  Endif
+  J += 1
+ Endif
+ I += 1
+Until I > 3
+#Infbox MSKCOL+chr$(10)+VARMSK(1)+"/"+VARABR(1)+chr$(10)+VARMSK(2)+"/"+VARABR(2)+chr$(10)+VARMSK(3)+"/"+VARABR(3)
+If MSKCOL<>""
+ zoncou = "NBLIG"
+ Gosub CHG_FMT From =MSKCOL
+ Affzo [M:CPT2]
+Endif
+Return
+
+#############################################################
+##         Solde à une date donnée                         ##
+#############################################################
+Subprog SOLDAT(GROUPE,COLLEC,COMPTE,TIERS,LEDTYP,SOCIETE,SITE,DEVSEL,COURS,DATSOL,SOLDE)
+Value    Char    GROUPE
+Value    Char    COLLEC
+Value    Char    COMPTE
+Value    Char    TIERS
+Value    Integer LEDTYP
+Value    Char    SOCIETE
+Value    Char    SITE
+Value    Char    DEVSEL
+Value    Integer COURS
+Value    Date    DATSOL
+Variable Decimal SOLDE
+Raz SOLDE
+Gosub SOL_DAT
+SOLDE = SOLD
+End
+
+Subprog SOLDAT2(GROUPE,COLLEC,COMPTE,TIERS,NBSITE,TSITE,LEDTYP,DEVSEL,COURS,DATSOL,SOLDE)
+Value    Char    GROUPE
+Value    Char    COLLEC
+Value    Char    COMPTE
+Value    Char    TIERS
+Value    Integer NBSITE
+Value    Char    TSITE()(1..)
+Value    Char    DEVSEL
+Value    Integer LEDTYP
+Value    Integer COURS
+Value    Date    DATSOL
+Variable Decimal SOLDE
+Local Char    SITE(GLONFCY), SOCIETE(GLONCPY)
+Local Integer J
+If !clalev([F:FCY]) : Local File FACILITY [FCY] : Endif
+Raz SOLDE
+For J=1 To NBSITE
+ SITE = TSITE(J)
+ Call LECTURE("FCY",SITE,"") From CONTOBJ
+ SOCIETE = [F:FCY]LEGCPY
+ Gosub SOL_DAT
+ SOLDE += SOLD
+Next
+End
+
+$SOL_DAT
+If !clalev([F:CPY]) : Local File COMPANY    [CPY] : Endif
+If !clalev([F:FIY]) : Local File FISCALYEAR [FIY] : Endif
+If !clalev([F:PER]) : Local File PERIOD     [PER] : Endif
+If !clalev([F:CPY]) : Local File COMPANY    [CPY] : Endif
+If !clalev([F:TCU]) : Local File TABCUR     [TCU] : Endif
+If !clalev([F:GAC]) : Local File GACCOUNT   [GAC] : Endif
+If !clalev([F:GSC]) : Local File GRPSAC     [GSC] : Endif
+If !clalev([F:BAL]) : Local File BALANCE    [BAL] : Endif
+If !clalev([F:DAE]) : Local File GACCENTRYD [DAE] : Endif
+If !clalev([F:HAE]) : Local File GACCENTRY  [HAE] : Endif
+If !clalev([F:COA]) : Local File GCOA       [COA] : Endif
+If !clalev([F:CLS]) : Local File GACCCLS    [CLS] : Endif
+
+Local Char BALSIT(GLONFCY) , BALACC(GLONGAC) , BALBPR(GLONBPR)
+Local Char CODLED(GLONLED), DEVLED(GLONCUR), PLAN(GLONCOA)
+Local Date    DATECT
+Local Integer I , FLECT , SPSTAT, GRP
+Local Decimal PDEB , PFIN , PMAX , EDEB , EFIN
+Local Decimal EXERCICE , PERIODE , SOLD
+Raz SOLD
+BALSIT = SITE
+
+Call LECTURE("CPY",SOCIETE,"") From CONTOBJ
+GRP=([F:CPY]CPYLEGFLG=1)
+
+Call LECLED(SOCIETE,LEDTYP,CODLED,DEVLED) From CPTDIV
+Call LECPLAN(SOCIETE,LEDTYP,PLAN) From CPTDIV
+
+Call GETPERSOC(SOCIETE,LEDTYP,DATSOL,EFIN,PERIODE) From CPTSUB
+If DATSOL = [F:PER]PEREND
+ PFIN = PERIODE : FLECT = 0
+Else
+ PFIN = PERIODE-1 : FLECT = 1 : DATECT = [F:PER]PERSTR
+Endif
+
+Filter [FIY] Where CPY=SOCIETE & LEDTYP=[L]LEDTYP & FIYSTA=2
+Read [FIY]FIY0 First
+Filter [FIY]
+EDEB = [F:FIY]FIYNUM
+If EFIN<EDEB : EDEB = EFIN : Endif
+PMAX = dim([F:BAL]DEB)-1
+If !FLECT
+ Call GETEXE(SOCIETE,LEDTYP,DATSOL,EXERCICE) From CPTSUB
+ If DATSOL=[F:FIY]FIYEND : PFIN=PMAX : Endif
+Endif
+
+Call LEC_COA(PLAN) From CPTLEC
+For EXERCICE=EDEB To EFIN
+ If TIERS<>""
+  If COLLEC<>""
+   Read [GAC]GAC1 = PLAN;COLLEC
+   Call LEC_CLS([F:COA]LEGCLS, [F:GAC]CLSCOD) From CPTLEC
+   If [F:CLS]ERA=2 or EXERCICE=EFIN
+    BALACC = [F:GAC]ACC : BALBPR = TIERS : Gosub CUMSOLDAT
+   Endif
+  Elsif GROUPE<>""
+   For [GSC]GSC0 Where COA=PLAN & GRU=GROUPE
+    Read [GAC]GAC1 = PLAN;[F:GSC]SAC
+    Call LEC_CLS([F:COA]LEGCLS, [F:GAC]CLSCOD) From CPTLEC
+    If [F:CLS]ERA=2 or EXERCICE=EFIN
+     BALACC = [F:GAC]ACC : BALBPR = TIERS : Gosub CUMSOLDAT
+    Endif
+   Next
+  Else
+   For [GAC]GAC1 Where COA=PLAN & ACCSHO>""
+    Call LEC_CLS([F:COA]LEGCLS, [F:GAC]CLSCOD) From CPTLEC
+    If [F:CLS]ERA=2 or EXERCICE=EFIN
+     BALACC = [F:GAC]ACC : BALBPR = TIERS : Gosub CUMSOLDAT
+    Endif
+   Next
+  Endif
+ Else
+  Call LEC_GAC(COMPTE, PLAN) From CPTLEC
+  Call LEC_CLS([F:COA]LEGCLS, [F:GAC]CLSCOD) From CPTLEC
+  If [F:CLS]ERA=2 or EXERCICE=EFIN
+   BALACC = COMPTE : BALBPR = "" : Gosub CUMSOLDAT
+  Endif
+ Endif
+Next
+Return
+
+
+$CUMSOLDAT
+# Issue X3-109301 better to have the filter in the same order than index and to use a link
+
+  Gosub CUMSOLDAT_BAL
+  Gosub CUMSOLDAT_DAE
+
+Return
+
+$CUMSOLDAT_BAL
+
+  If EDEB = EFIN and PFIN <= 0
+    Return
+  Endif
+
+  If DEVSEL <> "" and !GRP
+    Filter [BAL] Where LEDTYP = [L]LEDTYP and CPY = SOCIETE and FCY = BALSIT
+&                  and FIY = EXERCICE and ACC = BALACC and BPR = BALBPR
+&                  and CUR = DEVSEL
+  Else
+    Filter [BAL] Where LEDTYP = [L]LEDTYP and CPY = SOCIETE and FCY = BALSIT
+&                  and FIY = EXERCICE and ACC = BALACC and BPR = BALBPR
+  Endif
+
+  For [BAL] reckey
+
+    If EDEB = EFIN
+      If PFIN > 0
+        If DEVSEL <> "" and !GRP
+          SOLD += sum([F:BAL]DEB(0..PFIN)) - sum([F:BAL]CDT(0..PFIN))
+        Else
+          SOLD += sum([F:BAL]DEBLED(0..PFIN)) - sum([F:BAL]CDTLED(0..PFIN))
+          #001.ini
+          If GFONCTION="CONSCPT" and num$([M:CPT1]ZTERPAG)='2' Then
+           SOLD=0
+          Endif
+          #001.fin
+        Endif
+      Endif
+    Elsif EXERCICE = EDEB
+      If DEVSEL <> "" and !GRP
+        SOLD += sum([F:BAL]DEB(0..PMAX)) - sum([F:BAL]CDT(0..PMAX))
+      Else
+        SOLD += sum([F:BAL]DEBLED(0..PMAX)) - sum([F:BAL]CDTLED(0..PMAX))
+      Endif
+    Elsif EXERCICE = EFIN
+      If DEVSEL <> "" and !GRP
+        SOLD += sum([F:BAL]DEB(1..PFIN)) - sum([F:BAL]CDT(1..PFIN))
+      Else
+        SOLD += sum([F:BAL]DEBLED(1..PFIN)) - sum([F:BAL]CDTLED(1..PFIN))
+      Endif
+    Else
+      If DEVSEL <> "" and !GRP
+        SOLD += sum([F:BAL]DEB(1..PMAX)) - sum([F:BAL]CDT(1..PMAX))
+      Else
+        SOLD += sum([F:BAL]DEBLED(1..PMAX)) - sum([F:BAL]CDTLED(1..PMAX))
+      Endif
+    Endif
+  Next
+  Filter [BAL]
+
+Return
+
+$CUMSOLDAT_DAE
+
+#001.ini
+If GFONCTION="CONSCPT" Then
+#Dbgaff
+    If num$([M:CPT1]ZTERPAG)='2' Then
+#If FLECT and EXERCICE = EFIN
+
+    If SITE <> ""
+      If DEVSEL <> "" and !GRP
+
+        # Where clause following DAE1 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          left$([F:DAE]DES,len([M:CPT1]TIERS))  = BALBPR and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:DAE]CUR = DEVSEL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Else
+        # Where clause following DAE1 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          left$([F:DAE]DES,len([M:CPT1]TIERS)) = BALBPR and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+
+      Endif
+
+    Else
+      If DEVSEL <> "" and !GRP
+
+        # Where clause following DAE3 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          left$([F:DAE]DES,len([M:CPT1]TIERS)) = BALBPR and [F:DAE]CPY = SOCIETE and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:DAE]CUR = DEVSEL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+
+      Else
+        # Where clause following DAE3 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          left$([F:DAE]DES,len([M:CPT1]TIERS)) = BALBPR and [F:DAE]CPY = SOCIETE and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+
+      Endif
+    Endif
+    For [YLDAE] reckey
+
+      If DEVSEL <> "" and !GRP
+        SOLD += [F:DAE]SNS*[F:DAE]AMTCUR
+      Else
+        SOLD += [F:DAE]SNS*[F:DAE]AMTLED
+      Endif
+
+    Next
+    Filter [DAE]
+
+Else
+
+If FLECT and EXERCICE = EFIN
+    If SITE <> ""
+      If DEVSEL <> "" and !GRP
+        # Where clause following DAE1 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:DAE]CUR = DEVSEL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Else
+
+        # Where clause following DAE1 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Endif
+
+    Else
+      If DEVSEL <> "" and !GRP
+
+        # Where clause following DAE3 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and [F:DAE]CPY = SOCIETE and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:DAE]CUR = DEVSEL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Else
+
+        # Where clause following DAE3 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and [F:DAE]CPY = SOCIETE and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Endif
+    Endif
+    For [YLDAE] reckey
+
+      If DEVSEL <> "" and !GRP
+        SOLD += [F:DAE]SNS*[F:DAE]AMTCUR
+      Else
+        SOLD += [F:DAE]SNS*[F:DAE]AMTLED
+      Endif
+
+    Next
+    Filter [DAE]
+
+  Endif
+
+    Endif
+#
+#  Endif
+Else
+If FLECT and EXERCICE = EFIN
+    If SITE <> ""
+      If DEVSEL <> "" and !GRP
+        # Where clause following DAE1 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:DAE]CUR = DEVSEL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Else
+
+        # Where clause following DAE1 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Endif
+
+    Else
+      If DEVSEL <> "" and !GRP
+
+        # Where clause following DAE3 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and [F:DAE]CPY = SOCIETE and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:DAE]CUR = DEVSEL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Else
+
+        # Where clause following DAE3 index
+        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+&                          [F:DAE]BPR = BALBPR and [F:DAE]CPY = SOCIETE and
+&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+
+      Endif
+    Endif
+    For [YLDAE] reckey
+
+      If DEVSEL <> "" and !GRP
+        SOLD += [F:DAE]SNS*[F:DAE]AMTCUR
+      Else
+        SOLD += [F:DAE]SNS*[F:DAE]AMTLED
+      Endif
+
+    Next
+    Filter [DAE]
+
+  Endif
+
+
+Endif
+
+
+#  If FLECT and EXERCICE = EFIN
+#    If SITE <> ""
+#      If DEVSEL <> "" and !GRP
+#
+#
+#        # Where clause following DAE1 index
+#        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+#&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+#&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+#&                          [F:DAE]BPR = BALBPR and
+#&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+#&                          [F:DAE]CUR = DEVSEL and
+#&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+#
+#      Else
+#
+#        # Where clause following DAE1 index
+#        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+#&                    Where [F:DAE]CPY = SOCIETE and [F:DAE]FCYLIN = SITE and
+#&                          [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+#&                          [F:DAE]BPR = BALBPR and
+#&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+#&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+#
+#      Endif
+#
+#    Else
+#      If DEVSEL <> "" and !GRP
+#
+#        # Where clause following DAE3 index
+#        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+#&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+#&                          [F:DAE]BPR = BALBPR and [F:DAE]CPY = SOCIETE and
+#&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+#&                          [F:DAE]CUR = DEVSEL and
+#&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+#
+#      Else
+#
+#        # Where clause following DAE3 index
+#        Link [DAE] With [HAE]HAE0 ~= [F:DAE]TYP; [F:DAE]NUM As [YLDAE]
+#&                    Where [F:DAE]LEDTYP = [L]LEDTYP and [F:DAE]ACC = BALACC and
+#&                          [F:DAE]BPR = BALBPR and [F:DAE]CPY = SOCIETE and
+#&                          [F:DAE]ACCDAT >= DATECT and [F:DAE]ACCDAT <= DATSOL and
+#&                          [F:HAE]CAT <> 3 and [F:HAE]CAT <> 5
+#
+#      Endif
+#    Endif
+#    For [YLDAE] reckey
+#
+#      If DEVSEL <> "" and !GRP
+#        SOLD += [F:DAE]SNS*[F:DAE]AMTCUR
+#      Else
+#        SOLD += [F:DAE]SNS*[F:DAE]AMTLED
+#      Endif
+#
+#    Next
+#    Filter [DAE]
+#
+#  Endif
+
+#001.fin
+
+Return
+# End Issue X3-109301
+
+
+#############################################################
+##     Etiquettes masques CONSCPT1 & CRITCPT & CONSCPT2    ##
+#############################################################
+
+## Ecran CONSCPT1 ##
+
+Subprog C_COMPTE(VALEUR)
+Variable Char    VALEUR()
+# Issue X3-95646
+# Local    Char    ERRMES  : # Error message
+Local    Char    ERRMES(150)  : # Error message
+# End issue X3-95646
+Local    Integer ASTATUS
+Local    Char    CPYFCY(GLONCPY) #ISSUE 85535 - 2018-05-08 by MNO
+
+If VALEUR<>""
+ Raz [M]TIERS,[M]COLLEC, [M]GROUPE
+ Affzo TIERS, COLLEC, GROUPE , LIBEL
+ Call CONTROLE("GAC","G",VALEUR,"",mkstat) From CONTOBJ
+ #<YYFIN_X3-38440
+ If ([M]FCY<>AVOID.ACHAR or [M]CPY<>AVOID.ACHAR) and  ( [M]CPY <> [F:GAC]FCY)
+
+#  [L]ASTATUS = func CDACFY_SYRA.CTL_SITE(GACTX,[F:GAC]FCY,[M]FCY,VALEUR,ERRMES) #ISSUE 85535 - 2018-05-08 by MNO - changed to CTL_FCYCPY
+  If ([M]FCY='') : CPYFCY=[M]CPY : Else : CPYFCY=[M]FCY : Endif
+  [L]ASTATUS = func CDACFY_SYRA.CTL_FCYCPY(GACTX,[F:GAC]FCY,CPYFCY,VALEUR,ERRMES)
+#END ISSUE 85535
+  If [L]ASTATUS=[V]CST_AERROR
+   GMESSAGE  = ERRMES  #: End [L]ASTATUS
+   mkstat = 2 : End
+  Endif
+ Endif  #YYFIN_X3-38440>
+Endif
+End
+
+Subprog C_COLLEC(VALEUR)
+Variable Char    VALEUR()
+If VALEUR<>""
+ Raz [M]GROUPE, [M]COMPTE
+ Affzo COMPTE, GROUPE
+ Read [GAC]GAC1 = [M]COA;VALEUR
+ If [F:GAC]ACS<>""
+  Local Integer DROIT
+  Call CONSACC([F:GAC]ACS,DROIT) From CPTSUB
+  If !DROIT
+   ## Vous n'avez pas les droits pour ce code
+   GMESSAGE = mess(4,104,1)
+   mkstat = 2 : End
+  Endif
+ Endif
+Endif
+End
+
+Subprog C_GROUPE(VALEUR)
+Variable Char    VALEUR()
+If VALEUR<>""
+ Raz [M]COLLEC,[M]COMPTE
+ Affzo COMPTE, COLLEC
+ Call LECTURE("GSC",VALEUR,"") From CONTOBJ
+ For [GSC]GSC0 Where COA=[M:CPT1]COA & GRU=VALEUR
+  Read [GAC]GAC1 = [M:CPT1]COA;[F:GSC]SAC
+  If !fstat & [F:GAC]ACS<>""
+   Local Integer DROIT
+   Call CONSACC([F:GAC]ACS,DROIT) From CPTSUB
+   If !DROIT
+    # Vous n'avez pas les droits pour ce code
+    GMESSAGE = mess(4,104,1)-" : "-[F:GSC]SAC
+    mkstat = 2 : Break
+   Endif
+  Endif
+ Next
+ If mkstat : End : Endif
+Endif
+End
+
+Subprog C_TIERS(VALEUR)
+Variable Char    VALEUR()
+  #X3-195005 starts
+  #Everytime a search is clicked it goes to this function.
+  #If we do not reset [F:GAC] gives always an error if previouly it was search for an account with access code. the error is launched in GCONSULT.LECTURE when does the evalue("[F]"+[L]ZACC)
+  Raz [F:GAC]
+  #X3-195005 ends
+
+
+If VALEUR="" & ([M]COLLEC<>"" | [M]GROUPE<>"")
+ ## Zone obligatoire
+ GMESSAGE = mess(10,123,1)
+ mkstat = 2 : End
+Elsif VALEUR = "" & [M]COMPTE = ""
+ ## Un compte ou un tiers doit être renseigné
+ GMESSAGE = mess(139,104,1)
+ mkstat = 2 : End
+Elsif VALEUR<>""
+ Raz [M]COMPTE
+ Affzo COMPTE
+ Call CONTROLE("BPR","",VALEUR,"",mkstat) From CONTOBJ
+
+ #Compatibilité du tiers avec le/les collectifs
+ If !clalev([F:GAC]) : Local File GACCOUNT [GAC] : Endif
+ If !clalev([F:GSC]) : Local File GRPSAC   [GSC] : Endif
+ Local Integer OK
+ Raz OK
+ If [M]COLLEC<>""
+  Read [GAC]GAC1 = [M]COA;[M]COLLEC
+  If !fstat
+   Gosub CTRL_BPR_COLL
+   If !OK
+    #  Tiers incompatible avec le collectif
+    GMESSAGE = mess(45,106,1)
+    mkstat=2 : End
+   Endif
+  Endif
+ Elsif [M]GROUPE<>""
+  Filter [GSC] Where COA=[M]COA & GRU=[M]GROUPE
+  For [GSC]GSC0
+   Read [GAC]GAC1 = [M]COA;[F:GSC]SAC
+   If !fstat
+    Gosub CTRL_BPR_COLL
+    If OK : Break : Endif
+   Endif
+  Next
+  If !OK
+   #  Tiers incompatible avec le collectif
+   GMESSAGE = mess(45,106,1)-[F:GSC]SAC
+   mkstat=2 : End
+  Endif
+  Filter [GSC]
+ Endif
+Endif
+End
+
+$CTRL_BPR_COLL
+#Contrôle de compatibilité avec le tiers pour compte collectif
+Call LECTURE("BPR",VALEUR,"") From CONTOBJ
+OK += [F:BPR]BPCFLG=2 & [F:GAC]AUZBPR(0)=2
+OK += [F:BPR]BPSFLG=2 & [F:GAC]AUZBPR(1)=2
+OK += [F:BPR]BPTFLG=2 & [F:GAC]AUZBPR(2)=2
+OK += [F:BPR]FCTFLG=2 & [F:GAC]AUZBPR(3)=2
+OK += [F:BPR]REPFLG=2 & [F:GAC]AUZBPR(4)=2
+OK += [F:BPR]BPRACC=2 & [F:GAC]AUZBPR(5)=2
+Return
+
+## Ecrans CONSCPT1 & CRITCPT ##
+Subprog C_CPY(VALEUR)
+Variable Char    VALEUR()
+Local Char SOCIETE(GLONCPY)
+Call C_CPY(VALEUR) From CONSSUB
+## Si on a saisi un regroupement de sites, on contrôle qu'on ait accès à tous les sites du regroupement
+Call LEC_CPY(VALEUR) From CPTLEC
+If [F:CPY]CPYLEGFLG<>2
+ Call CONTALLFCY(VALEUR) From CPTSUB : # Accès à tous les sites de la société ?
+Endif
+GCURLEG = [F:CPY]LEG
+End
+
+Subprog AS_FCY(VALEUR)
+Variable Char    VALEUR()
+Call AS_FCY(VALEUR) From CONSSUB
+End
+
+Subprog C_FCY(VALEUR)
+Variable Char    VALEUR()
+Call C_FCY(VALEUR) From CONSSUB
+End
+
+Subprog AS_LEDTYP(VALEUR)
+Variable Integer VALEUR
+Local Integer OPTION
+OPTION=1 : #Référentiel de type de comptabilité général
+Call LEDTYP_CHOICE([M:CPT1]CPY,OPTION) From CPTDIV
+End
+
+Subprog C_LEDTYP(VALEUR)
+Variable Integer VALEUR
+Call C_LEDTYP(VALEUR) From CONSSUB
+End
+
+Subprog C_DATDEB(VALEUR)
+Variable Date    VALEUR
+Call C_DATDEB(VALEUR) From CONSSUB
+End
+
+Subprog AM_DATDEB(VALEUR)
+Variable Date    VALEUR
+Local Decimal EXERCICE
+Call GETEXE([M]CPY,[M]LEDTYP,VALEUR,EXERCICE) From CPTSUB
+Local Date    DDEB, DFIN
+Call DATEXE([M]CPY,[M]LEDTYP,EXERCICE,DDEB,DFIN) From CPTSUB
+[M]DATFIN=DFIN
+Affzo [M]DATFIN
+End
+
+Subprog C_DATFIN(VALEUR)
+Variable Date    VALEUR
+Call C_DATFIN(VALEUR) From CONSSUB
+End
+
+Subprog B1_ECRAN(VALEUR)
+Variable Char    VALEUR()
+End
+
+## Ecran CRITCPT
+
+Subprog AS_MTC(VALEUR)
+Variable Char    VALEUR()
+#If [M]TYPECR<>2 : mkstat = 1 : Endif
+End
+
+Subprog C_TYPECR(VALEUR)
+Variable Integer VALEUR
+#If VALEUR<>2 : [M]MTC = "" : Affzo MTC : Endif
+End
+
+## Ecran CONSCPT2 ##
+
+Subprog IB_NBLIG
+Call IB_NBLIG From CONSSUB
+# correction bug 26538
+If [M:CPT2]ORIMOD(nolign-1)<>7 # Stocks
+ Raz GBOUT5 # suppression tunnel "Mouvements par date"
+Endif
+# correction bug 26538
+If [M:CPT2]ORIMOD(nolign-1)<>8 # GPAO
+ Raz GBOUT6 # suppression tunnel "Coût de revient industriel"
+Endif
+End
+
+## Tunnel vers les pièces
+$AB1_NBLIG
+Gosub SAV_CONSULT From CONSSUB
+Call B1_NBLIG From CONSSUB
+Return
+
+## Tunnel vers les factures et règlements
+$AB2_NBLIG
+Gosub SAV_CONSULT From CONSSUB
+Call B2_NBLIG From CONSSUB
+Return
+
+$BB_NBLIG
+Gosub RST_CONSULT From CONSSUB
+Return
+
+## Marquage
+Subprog AM_MRK(VALEUR)
+Variable Char    VALEUR()
+Local Integer NOL
+NOL = nolign-1
+If clalev([F:DAE])=0 : Local File GACCENTRYD [DAE] : Endif
+Call DEBTRANS From GLOCK
+Gosub TR1
+End
+
+$TR1
+Trbegin [DAE]
+ Readlock [DAE]DAE2 = [M]ACCNUM(NOL)
+ If fstat=1
+  GOK=-1 : GLOCK="$GACCENTRYD"-num$([M]ACCNUM(NOL)) : Goto ROLL_TR1
+ Elsif fstat
+  GOK = 0 : Call FSTA("DAE") From GLOCK : Goto AB_TR1
+ Endif
+ [F:DAE]MRK = VALEUR
+ Rewrite [DAE]
+ If fstat
+  GOK=0 : Call FSTA("DAE") From GLOCK : Goto AB_TR1
+ Endif
+Commit
+Return
+
+$AB_TR1
+Rollback
+Return
+
+$ROLL_TR1
+Rollback
+Call ROLL From GLOCK
+If GROLL : Return : Else : Goto TR1 : Endif
+
+#X3-234239 starts
+Subprog AS_CPY(VALEUR)
+Variable Char    VALEUR()
+  [M]CPY = "" #we force this value to do the Gosub SETSOC
+  Call C_CPY(VALEUR)
+End
+#X3-234239 ends

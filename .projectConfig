@@ -1,0 +1,9 @@
+# ICRLIVE project settings
+# The endpoint in an uri form. The scheme define the connection type# http:// for update 8.0 and greater, x3:// or none for previous versions
+uri=https://erpicr.auren.net:8127/ICRLIVE/ICRLIVE
+# ===================================================
+# Obsolete settings (kept for backward compatibility)
+# ===================================================
+server=erpicr.auren.net
+port=8127
+folder=ICRLIVE

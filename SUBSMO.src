@@ -1,0 +1,879 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# Z001 - JC.20062022 - Desde importación permite Centros coste no correspondientes a la planta. Modificar comportamiento
+###################################################################################
+
+$ACTION
+#--- Dem 78142
+# Entry point reserved for ETO
+GPOINT=ACTION
+GPE=0
+Gosub ENTREE From EXEFNC
+If GPE=1 : Return : Endif
+#---
+Case ACTION
+ When "OUVRE"        : Gosub OUVRE        From SUBSMOA
+ When "DEFTRANS"     : Gosub DEFTRANS     From SUBSMOA
+ When "VARIANTE"     : Gosub VARIANTE     From SUBSMOA
+ When "SETTRANS"     : Gosub SETTRANS     From SUBSMOA
+ When "FILTRE"       : Gosub FILTRE       From SUBSMOA
+ When "LIENS"        : Gosub LIENS        From SUBSMOA
+ When "DEFLIG"       : Gosub DEFLIG       From SUBSMOA
+ When "LIENS_LIG"    : Gosub LIENS_LIG    From SUBSMOA
+
+ When "SETBOUT"      : Gosub SETBOUT      From SUBSMOA
+ When "STATUT"       : Gosub STATUT       From SUBSMOA
+
+ When "RAZCRE"       : Gosub RAZCRE       From SUBSMOA
+ When "RAZDUP"       : Gosub RAZDUP       From SUBSMOA
+ When "AVANT_MOD"    : Gosub AVANT_MOD    From SUBSMOA
+
+ When "VERIF_CRE"    : Gosub VERIF_CRE    From SUBSMOA
+ When "VERIF_MOD"    : Gosub VERIF_MOD    From SUBSMOA
+ When "AVANT_MODFIC" : Gosub AVANT_MODFIC From SUBSMOA
+ When "INICRE"       : Gosub INICRE       From SUBSMOA
+ When "INIMOD"       : Gosub INIMOD       From SUBSMOA
+ When "CREATION"     : Gosub CREATION     From SUBSMOA
+ When "INICRE_LIG"   : Gosub INICRE_LIG   From SUBSMOA
+ When "VALLIG"       : Gosub VALLIG       From SUBSMOA
+ When "APRES_CRE"    : Gosub APRES_CRE    From SUBSMOA
+ When "MODIF"        : Gosub MODIF        From SUBSMOA
+ When "APRES_MOD"    : Gosub APRES_MOD    From SUBSMOA
+ When "AB_CREATION"  : Gosub AB_CREATION  From SUBSMOA
+ When "AB_MODIF"     : Gosub AB_MODIF     From SUBSMOA
+
+ When "AAPRES_NBLIG" : Gosub AAPRES_NBLIG From SUBSMO
+ When "AB3_NBLIG"    : Gosub AB3_NBLIG    From SUBSMO
+
+ When "ANNULE"       : Gosub ANNULE       From SUBSMOA
+ When "ABANDON"      : Gosub ABANDON      From SUBSMOA
+ When "FIN"          : Gosub ABANDON      From SUBSMOA
+ When "FERME"        : Gosub FERME        From SUBSMOA
+ When "APRES_MODIF"  : Gosub APRES_MODIF  From SUBSMOA
+ When "GRISE"        : Gosub GRISE        From SUBSMOA
+ When Default
+Endcase
+Return
+
+$SET_NOL
+Local Integer NOL
+NOL = nolign-1
+Return
+
+#----------------------------------------------------------------------------#
+#                      E N - T E T E    D O C U M E N T                      #
+#----------------------------------------------------------------------------#
+
+########################################
+Subprog D_VCRNUM(VALEUR)
+Variable Char    VALEUR()
+    [M:SMO0]VCRTYP = 20
+End
+
+########################################
+Subprog C_VCRNUM(VALEUR)
+Variable Char    VALEUR()
+    If (VALEUR="" &  GSTKCPT(10)="")
+        mkstat = 2
+        End
+    Endif
+
+    If (GREP="C" & VALEUR="" &  GSTKCPT(10)<>"")
+        End
+    Endif
+
+    If [M:SMO0]VCRNUM="" & GREP<>"C"
+        Look [F:SMH]SMH0=[M:SMO0]VCRTYP;VALEUR
+        If fstat
+            GMESSAGE=mess(178,199,1)
+            mkstat=2
+            End
+        Endif
+    Endif
+
+    If VALEUR<>"" & GSTKCPTMAN(10)<>2
+        Look [F:SMH]SMH0=[M:SMO0]VCRTYP;VALEUR
+        If fstat
+            Raz VALEUR
+            End
+        Endif
+    Endif
+End
+
+########################################
+Subprog AM_STOFCY(VALEUR)
+Variable Char VALEUR
+Local Char    LSEC
+Local Integer I
+GFCY=VALEUR : Gosub CHARG_PARAM From SUBSMOA       # ana
+# Issue X3-201873 - 2020-06-18 by MAE : si le compteur est manuel, actzo du n° piéce
+If GSTKCPTMAN(10)= 2
+        Actzo [M:SMO0]VCRNUM
+Else
+        Effzo [M:SMO0]VCRNUM
+        Diszo [M:SMO0]VCRNUM
+Endif
+
+    #------- Initialisation des sections ana --------#
+    # doit être fait en am_stofcy car des sections peuvent être fonction du site #
+    [M:SMO0]STOFCY=VALEUR
+    For I=1 To GNBDIE
+        If dim([M:SMO0]CCE)>0
+            Call INISEC (LSEC, "STKSODH", I) From TRTX3CPT
+            #--- Bug 77750
+            #Assign "[M:SMO0]CCE("+num$(I-1)+")" With LSEC
+            [M:SMO0]CCE(I-1) = LSEC
+            [M:SMO0]DIE(I-1) = GDIE(I)
+            #---
+        Else
+            Break
+        Endif
+    Next
+Gosub AFF_TITCOL  From SUBSMOA          # hcb 103041
+
+#--- Bug 65478
+# Réinitialisation du dépôt
+If dim([M:SMO0]WRHE)>0
+   Call WRHINIT([M:SMO0]WRHE,VALEUR,10) From STKWRH
+Endif
+#---
+
+# Actzo ou Grizo des dépôts selon le site
+[M]STOFCY=VALEUR
+Gosub WRH_ETAT From SUBSMOA
+
+End
+
+########################################
+Subprog AS_WRHE(VALEUR)
+Variable Char    VALEUR()
+If GWRHOBY=2 & VALEUR<>"" & [M]NBLIG<>0
+   GMESSAGE=mess(342,184,1) : mkstat=2
+Endif
+End
+
+
+#----------------------------------------------------------------------------#
+#                      L I G N E S    D O C U M E N T                        #
+#----------------------------------------------------------------------------#
+
+########################################
+Subprog C_NBLIG
+Local Integer WRET, I
+
+Gosub SET_NOL
+    Case status
+        When 65     :                                # Suppression d'une ligne
+            If [M:SMO1]CREFLG(NOL)=0
+                Call DELSTOSORW(NOL,NOL,"SMO1",[M:SMO0]STOFCY,WRET) From STKSOR
+                If WRET<>0 : mkstat=2 : Endif
+            Else
+                GMESSAGE = mess (6,184,1)            # La suppression d'une ligne validée doit se faire via la fenêtre de modification
+                mkstat = 2
+            Endif
+
+        When 68, 83 :                                # Suppression d'un groupe de lignes
+            For I=nolign-1 To nolign1-1
+                If [M:SMO1]CREFLG(I)<>0
+                    GMESSAGE = mess (6,184,1)            # La suppression d'une ligne validée doit se faire via la fenêtre de modification
+                    mkstat=2
+                    Break
+                Endif
+            Next
+            If !mkstat
+                Call DELSTOSORW(NOL,nolign1-1,"SMO1",[M:SMO0]STOFCY,WRET) From STKSOR
+                If WRET<>0 : mkstat=2 : Endif
+            Endif
+
+        When 73, 82 :
+            Call STKACTLIG(nolign-1) From STKECR
+
+        When 75     :
+            If [M:SMO1]CREFLG(nolign-1)<>0
+                mkstat=2
+            Endif
+    Endcase
+
+End
+
+########################################
+Subprog AVANT_NBLIG
+
+If status=73 | status=82
+   #--- Bug 53458
+   Actzo [M:SMO1]ITMREF(nolign-1),ITMDES1(nolign-1)
+   If dim([M:SMO1]PCU)>0
+      Actzo [M:SMO1]PCU(nolign-1),QTYPCU(nolign-1)
+   Endif
+   If dim([M:SMO1]PCUSTUCOE)>0
+      Actzo [M:SMO1]PCUSTUCOE(nolign-1)
+   Endif
+   #---
+   If GREP = "M"
+      If dim(GCTRDATSMO) <= 0
+          If [M:SMO0]IPTDAT < date$
+             Global Integer GCTRDATSMO
+             # Attention ! la date d imputation est antérieure à la date du jour
+             Call MESSAGE(mess(162,184,1)) From GESECRAN
+          Endif
+      Endif
+   Endif
+Else
+   Diszo [M:SMO1]ITMREF(nolign-1)
+Endif
+Gosub SET_NOL
+
+# Lecture article et règle de gestion
+Call INIZONSOR("SMO1",[M:SMO1]ITMREF(NOL),[M:SMO0]STOFCY,NOL,[M:SMO0]TRSTYP,[M:SMO0]TRSCOD,"") From STKECR
+
+#--- TS 106217
+If status<>73 & status<>82
+  If dim([M:SMO1]ECCVALMAJ)>0
+    Diszo [M:SMO1]ECCVALMAJ(nolign-1)
+  Endif
+  If dim([M:SMO1]ECCVALMIN)>0
+    Diszo [M:SMO1]ECCVALMIN(nolign-1)
+  Endif
+Endif
+#---
+
+End
+
+########################################
+Subprog IB_NBLIG
+
+
+GOUVSOR = 1
+
+If [M:SMO1]ITMREF(nolign-1) = ""
+   Raz GBOUT2, GBOUT3
+   End
+Endif
+
+If [M:SMO1]CREFLG(nolign-1)<>0
+   GBOUT2 = ""    # Saisie détail
+Endif
+If [M:SMO1]CREFLG(nolign-1)=0
+&  | GREP<>"" & [M:SMO0]CFMFLG=2
+&  | [M:SMO0]CFMFLG<>2
+   GBOUT3 = ""    # Modif détail
+Endif
+
+End
+
+#########################################################################
+# Etiquette exécutée avant l'action SAISTOSOR
+#########################################################################
+$AB3_NBLIG
+#-- Habilitation Modification mvts stock si on trouve K dans la chaine des boutons autorisés
+# hcb 27842
+Raz GBIDI2
+GFCY=[M:SMO0]STOFCY
+GBIDC2="K" : Gosub AUTORIS_OPT From CONTX3
+If !GBIDI2  GMESSAGE=mess(2,104,1)
+   GOUVSOR=0
+   Return
+Else
+   GOUVSOR = 1
+Endif
+Return
+
+
+$AAPRES_NBLIG
+Local Integer WRET
+Raz WRET
+Raz GOUVSOR
+Gosub SET_NOL
+
+# Si suppression ligne
+If find(status,65,68,83) & !GIMPORT Return Endif
+# Si sortie tableau non validante
+If adxgtb=1 & !GIMPORT Return Endif
+
+# Si ligne saisie mais non créée ou
+# ligne déjà créée et pièce avec validation non validée
+If [M:SMO1]CREFLG(NOL)=0 | ([M:SMO1]CREFLG(NOL)<>0 & [M:SMO0]CFMFLG<>2)
+   # Alimentation de [M:ALP]
+   Gosub ALI_ALP From SUBSMOB
+   # Détermination du stock à sortir (automatisme, saisie)
+   Diszo [M:SMO1]ITMREF(NOL)
+   Call OUVSOR("SMO1",NOL,[M:SMO1]NBLIG,[M:SMO1]WSTOSEQ(NOL),[M:SMO0]STKFLG,WRET) From STKSOR     # hcb 50197
+   Affzo [M:SMO1]ITMREF(NOL) # Pour la couleur
+Endif
+Return
+
+########################################
+Subprog AV_ITMREF(VALEUR)
+Variable Char    VALEUR()
+Local    Decimal WQTY
+Local    Integer J, NOL
+
+NOL=nolign-1
+Chgstl ITMREF(NOL) With ""
+# Colorisation de l'article
+# - si tout le stock à sortir n'a pas été renseigné
+# - s'il y a une quantité en rupture
+If [M:SMO0]CFMFLG<>2
+   # Nouvelle ligne ou ligne modifiée
+   If [M:SMO1]CREFLG(NOL)=0 | ([M:SMO1]CREFLG(NOL)<>0 & [M:SMO1]UPDFLG(NOL)<>0)
+      # Si ligne en cours de saisie
+      If [M:SMO1]QTYSTU(NOL)=0
+         Chgstl ITMREF(NOL) With "AWARNHIGH"
+      Else
+         WQTY=sigma(J=0,[M:SOW]NBLIG-1,[M:SOW]WQTYSTUACT(J)*([M:SOW]WSTOSEQ(J)=[M:SMO1]WSTOSEQ(NOL)))
+         # Tout le stock à sortir n'a pas été renseigné
+         If WQTY<>[M:SMO1]QTYSTU(NOL)
+            Chgstl ITMREF(NOL) With "AWARNHIGH"
+         Else
+            WQTY=sigma(J=0,[M:SOW]NBLIG-1,[M:SOW]WQTYSTUACT(J)*
+&                     ([M:SOW]WSTOSEQ(J)=[M:SMO1]WSTOSEQ(NOL)&[M:SOW]WSTOCOU(J)<>0))
+            # Il y a une quantité en rupture
+            If WQTY<>[M:SMO1]QTYSTU(NOL)
+               Chgstl ITMREF(NOL) With "AWARNLOW"
+            Endif
+         Endif
+      Endif
+   Elsif [M:SMO1]FLGRUP(NOL)=1
+      Chgstl ITMREF(NOL) With "AWARNLOW"
+   Endif
+Elsif [M:SMO1]FLGRUP(NOL)=1
+   Chgstl ITMREF(NOL) With "AWARNLOW"
+Endif
+End
+
+########################################
+Subprog AM_ITMREF(VALEUR)
+Variable Char    VALEUR()
+Local Char    LSEC
+Local Integer I
+    [M:SMO0]VCRTYP = 20
+    [M:SMO0]TRSTYP = 2
+
+    Gosub SET_NOL
+    # Lecture article et règle de gestion
+    Call INIZONSOR("SMO1",VALEUR,[M:SMO0]STOFCY,nolign-1,[M:SMO0]TRSTYP,[M:SMO0]TRSCOD,"") From STKECR
+    If mkstat = 2   #hcb 43463
+       End          #hcb 43463
+    Endif           #hcb 43463
+    If [F:ITF]STOMGTCOD<2
+       GMESSAGE = mess(283,197,1)
+       mkstat = 2
+       End
+    Endif
+
+    If [F:ITM]ITMSTA = 6                                               #hcb 31837
+       GMESSAGE = mess(3,196,1)+"("+mess([F:ITM]ITMSTA,246,1)+")"      #hcb 31837
+       mkstat = 2                                                      #hcb 31837
+       End                                                             #hcb 31837
+    Endif                                                              #hcb 31837
+
+    If clalev ([F:ITF]) <= 0 : Local File ITMFACILIT [ITF] : Endif
+    If [F:ITF]ITMREF <> VALEUR | [F:ITF]STOFCY <> [M:SMO0]STOFCY
+        Read [ITF]ITF0 = VALEUR;[M:SMO0]STOFCY
+        If fstat
+            mkstat = 2
+            GMESSAGE = mess(25,192,1)
+            End
+        Endif
+    Endif
+
+    [M:SMO1]STOMGTCOD(NOL) = [F:ITF]STOMGTCOD
+
+    #[M:SMO1]ITMDES1(NOL) = [F:ITM]ITMDES1
+    Call CHARGE_DEFITMDES("DES1AXX",GLANGUE,[F:ITM]ITMREF,[M:SMO1]ITMDES1(NOL), "[F:ITM]") From TRTX3 # FGR 30/06/2009 : X3SUIVI56189
+    [M:SMO1]PCU(NOL)        = [F:ITM]STU
+    [M:SMO1]PCUSTUCOE(NOL)  = 1
+    [M:SMO1]STU(NOL)        = [F:ITM]STU
+    Diszo [M:SMO1]PCUSTUCOE(NOL)
+    Affzo [M:SMO1]PCU(NOL),PCUSTUCOE(NOL),STU(NOL)
+    If [M]STOMGTCOD(NOL)<>1 & dim([M:SMO1]LOC)>0
+       Call STKINIEMPS([M:SMO1]LOC(NOL)) From STKLOC
+    Endif
+End
+
+########################################
+#--- TS 106217
+Subprog C_ECCVALMAJ(VALEUR)
+Variable Char    VALEUR()
+Local Integer    LRET
+
+Call CTLECCVAL(VALEUR,[M:SMO0]STOFCY,[M:SMO1]ITMREF(nolign-1),
+&             [M:SMO0]TRSTYP,[M:SMO0]TRSCOD,[M:SMO0]IPTDAT,LRET) From STKSOR
+If LRET>0 mkstat=2 Endif
+End
+#---
+
+########################################
+Subprog AM_PCU(VALEUR)
+Variable Char    VALEUR()
+
+Local Integer LMODIF
+Local Decimal LCOEF
+
+    Gosub SET_NOL
+    # Recherche du nouveau coefficient UC-US
+    Call CTLUOM([M]ITMREF(NOL),3,"",VALEUR,LCOEF,GBIDC1,GBIDC2,LMODIF) From STKACT
+    If mkstat=2 End Endif
+    [M]PCUSTUCOE(NOL) = LCOEF
+    If LMODIF < 2
+        Diszo [M:SMO1]PCUSTUCOE(NOL)
+    Else
+        Actzo [M:SMO1]PCUSTUCOE(NOL)
+    Endif
+    Call QTEARR( [M:SMO1]QTYPCU(NOL), VALEUR ) From TRTDIV
+    [M:SMO1]QTYSTU(NOL) = [M:SMO1]QTYPCU(NOL)*[M:SMO1]PCUSTUCOE(NOL)
+    Call QTEARR( [M:SMO1]QTYSTU(NOL), [M:SMO1]STU(NOL) ) From TRTDIV
+    Affzo [M:SMO1]PCUSTUCOE(NOL), QTYSTU(NOL)
+
+End
+
+########################################
+Subprog C_QTYPCU(VALEUR)
+Variable Decimal VALEUR
+    If VALEUR<=0
+       GMESSAGE=mess(10,123,1)    # hcb 41657
+       If !GIMPORT
+           mkstat=2
+       Endif
+    Endif
+End
+
+########################################
+Subprog AM_QTYPCU(VALEUR)
+Variable Decimal VALEUR
+    Gosub SET_NOL
+    [M:SMO1]QTYSTU(NOL) = VALEUR * [M:SMO1]PCUSTUCOE(NOL)
+    #--- Bug 61604
+    Call QTEARR( [M:SMO1]QTYSTU(NOL),[M:SMO1]STU(NOL)) From TRTDIV
+    Affzo [M:SMO1]QTYSTU(NOL)
+End
+
+########################################
+Subprog AM_PCUSTUCOE(VALEUR)
+Variable Decimal VALEUR
+    Gosub SET_NOL
+    [M:SMO1]QTYSTU(NOL) = [M:SMO1]QTYPCU(NOL) * VALEUR
+    #--- Bug 61604
+    Call QTEARR( [M:SMO1]QTYSTU(NOL),[M:SMO1]STU(NOL)) From TRTDIV
+    Affzo [M:SMO1]QTYSTU(NOL)
+End
+
+########################################
+# Dépôt
+########################################
+Subprog AS_WRH(VALEUR)
+Variable Char    VALEUR()
+
+If GWRHOBY=2
+  VALEUR = [M:SMO0]WRHE : mkstat=2 : End
+Endif
+# Si nouvelle ligne et stock pas encore déterminé
+#If VALEUR="" & [M:SMO1]CREFLG(nolign-1)=0 & [M:SMO1]WSTOSEQ(nolign-1)=0
+#  VALEUR = [M:SMO0]WRHE
+#Endif
+End
+
+Subprog C_WRH(VALEUR)
+Variable Char    VALEUR()
+If VALEUR<>""
+  Read [ITW]ITW0=[M]ITMREF(nolign-1);VALEUR
+  If fstat
+     GMESSAGE=[M]ITMREF(nolign-1)-":"-mess(343,184,1) : mkstat=2
+  Endif
+  #--- Issue 115275
+  # Initialisation emplacement lié à l'article-dépôt si nécessaire
+  Call STKINIEMPSW([M:SMO1]LOC(nolign-1)) From STKLOC
+  #---
+Endif
+End
+
+########################################
+Subprog AM_SERNUM(VALEUR)
+Variable Char    VALEUR()
+Local    Integer NOL
+Local    Char    LSERF(GLONSER)
+Local    Decimal LQTYF
+NOL=nolign-1
+
+If VALEUR<>""
+   # Alimentation de [M:ALP]
+   Gosub ALI_ALP From SUBSMOB
+   # Détermination no série fin
+   Call CTLSORSER("SMO1",NOL,VALEUR,[M:SMO1]QTYSTU(NOL),LSERF,LQTYF) From STKSOR
+   If LQTYF=0
+      Raz VALEUR, [M:SMO1]SERNUMF(NOL)
+   Else
+      [M:SMO1]SERNUMF(NOL)=LSERF
+   Endif
+Else
+   Raz [M:SMO1]SERNUMF(NOL)
+Endif
+End
+
+########################################
+
+Subprog D_CCE1(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=1 : Gosub D_CCEX
+End
+
+Subprog AS_CCE1(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=1 : Gosub AS_CCEX
+End
+
+Subprog C_CCE1(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=1 : Gosub C_CCEX
+End
+
+Subprog D_CCE2(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=2 : Gosub D_CCEX
+End
+
+Subprog AS_CCE2(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=2 : Gosub AS_CCEX
+End
+
+Subprog C_CCE2(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=2 : Gosub C_CCEX
+End
+
+Subprog D_CCE3(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=3 : Gosub D_CCEX
+End
+
+Subprog AS_CCE3(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=3 : Gosub AS_CCEX
+End
+
+Subprog C_CCE3(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=3 : Gosub C_CCEX
+End
+
+Subprog D_CCE4(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=4 : Gosub D_CCEX
+End
+
+Subprog AS_CCE4(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=4 : Gosub AS_CCEX
+End
+
+Subprog C_CCE4(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=4 : Gosub C_CCEX
+End
+
+Subprog D_CCE5(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=5 : Gosub D_CCEX
+End
+
+Subprog AS_CCE5(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=5 : Gosub AS_CCEX
+End
+
+Subprog C_CCE5(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=5 : Gosub C_CCEX
+End
+
+Subprog D_CCE6(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=6 : Gosub D_CCEX
+End
+
+Subprog AS_CCE6(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=6 : Gosub AS_CCEX
+End
+
+Subprog C_CCE6(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=6 : Gosub C_CCEX
+End
+
+Subprog D_CCE7(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=7 : Gosub D_CCEX
+End
+
+Subprog AS_CCE7(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=7 : Gosub AS_CCEX
+End
+
+Subprog C_CCE7(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=7 : Gosub C_CCEX
+End
+
+Subprog D_CCE8(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=8 : Gosub D_CCEX
+End
+
+Subprog AS_CCE8(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=8 : Gosub AS_CCEX
+End
+
+Subprog C_CCE8(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=8 : Gosub C_CCEX
+End
+
+Subprog D_CCE9(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=9 : Gosub D_CCEX
+End
+
+Subprog AS_CCE9(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=9 : Gosub AS_CCEX
+End
+
+Subprog C_CCE9(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=9 : Gosub C_CCEX
+End
+
+Subprog D_CCE10(VALEUR)
+Variable Char    VALEUR()
+
+Local    Integer AXE : AXE=10 : Gosub D_CCEX
+End
+
+Subprog AS_CCE10(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=10 : Gosub AS_CCEX
+End
+
+Subprog C_CCE10(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=10 : Gosub C_CCEX
+End
+
+Subprog D_CCE11(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=11 : Gosub D_CCEX
+End
+
+Subprog AS_CCE11(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=11 : Gosub AS_CCEX
+End
+
+Subprog C_CCE11(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=11 : Gosub C_CCEX
+End
+
+Subprog D_CCE12(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=12 : Gosub D_CCEX
+End
+
+Subprog AS_CCE12(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=12 : Gosub AS_CCEX
+End
+
+Subprog C_CCE12(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=12 : Gosub C_CCEX
+End
+
+Subprog D_CCE13(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=13 : Gosub D_CCEX
+End
+
+Subprog AS_CCE13(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=13 : Gosub AS_CCEX
+End
+
+Subprog C_CCE13(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=13 : Gosub C_CCEX
+End
+
+Subprog D_CCE14(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=14 : Gosub D_CCEX
+End
+
+Subprog AS_CCE14(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=14 : Gosub AS_CCEX
+End
+
+Subprog C_CCE14(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=14 : Gosub C_CCEX
+End
+
+Subprog D_CCE15(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=15 : Gosub D_CCEX
+End
+
+Subprog AS_CCE15(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=15 : Gosub AS_CCEX
+End
+
+Subprog C_CCE15(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=15 : Gosub C_CCEX
+End
+
+Subprog D_CCE16(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=16 : Gosub D_CCEX
+End
+
+Subprog AS_CCE16(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=16 : Gosub AS_CCEX
+End
+
+Subprog C_CCE16(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=16 : Gosub C_CCEX
+End
+
+Subprog D_CCE17(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=17 : Gosub D_CCEX
+End
+
+Subprog AS_CCE17(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=17 : Gosub AS_CCEX
+End
+
+Subprog C_CCE17(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=17 : Gosub C_CCEX
+End
+
+Subprog D_CCE18(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=18 : Gosub D_CCEX
+End
+
+Subprog AS_CCE18(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=18 : Gosub AS_CCEX
+End
+
+Subprog C_CCE18(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=18 : Gosub C_CCEX
+End
+
+Subprog D_CCE19(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=19 : Gosub D_CCEX
+End
+
+Subprog AS_CCE19(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=19 : Gosub AS_CCEX
+End
+
+Subprog C_CCE19(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=19 : Gosub C_CCEX
+End
+
+Subprog D_CCE20(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=20 : Gosub D_CCEX
+End
+
+Subprog AS_CCE20(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=20 : Gosub AS_CCEX
+End
+
+Subprog C_CCE20(VALEUR)
+Variable Char    VALEUR()
+Local    Integer AXE : AXE=20 : Gosub C_CCEX
+End
+
+$D_CCEX
+#------------------------------------#
+# Initialisation commune aux 20 axes #
+#------------------------------------#
+If AXE > GNBDIE  Return : Endif
+Call INIT_CCE(VALEUR,AXE,"STKSODD","",0) From TRTX3CPT
+Return
+
+$AS_CCEX
+#----------------------------------#
+# Avant saisie commune aux 20 axes #
+#----------------------------------#
+Call SAIS_CCE(VALEUR,AXE,"","") From TRTX3CPT
+Return
+
+$C_CCEX
+#-----------------------------#
+# Contrôle commun aux 20 axes #
+#-----------------------------#
+#If !GIMPORT                                                              # Z001.new.Auren
+   Call CTRL_CCE(VALEUR,AXE,"",GFINRSP,[M:SMO0]IPTDAT) From TRTX3CPT
+#Endif                                                                    # Z001.new.Auren
+Return
+
+
+######################################################################################
+######################################################################################
+## Etiquette ajoutée par le superviseur (écran WT0INV0) 27-09-2009 08:29:07 (EL)
+######################################################################################
+Subprog D_VCRTYP(VALEUR)
+Variable Integer VALEUR
+End
+
+
+######################################################################################
+
+######################################################################################
+## Etiquette ajoutée par le superviseur (écran WT0INV1) 27-09-2009 08:29:08 (EL)
+######################################################################################
+Subprog IB_LOT
+End
+
+
+######################################################################################
+
+#                                                                        # hcb 51677 deb
+Subprog AM_PJT(VALEUR)
+Variable Char    VALEUR()
+Local Char    LSEC
+Local Integer I
+If [M:SMO1]NBLIG=0
+   [M:SMO0]PJT=VALEUR
+   For I=1 To GNBDIE
+       If dim([M:SMO0]CCE)>0
+          Raz [M:SMO0]CCE(I-1)
+          Call INISEC (LSEC, "STKSODH", I) From TRTX3CPT
+          [M:SMO0]CCE(I-1) = LSEC
+          [M:SMO0]DIE(I-1) = GDIE(I)
+       Else
+          Break
+       Endif
+    Next
+Endif
+End
+#                                                                        # hcb 51677 fin

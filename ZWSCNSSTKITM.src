@@ -1,0 +1,358 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+Local Char     PITMREF     (100)(1..500)
+Local Char     PITMDES1    (100)(1..500)
+Local Char     PTSICOD0    (100)(1..500)
+Local Char     PTSIDES0    (100)(1..500)
+Local Char     PTSICOD1    (100)(1..500)
+Local Char     PTSIDES1    (100)(1..500)
+Local Char     PTSICOD2    (100)(1..500)
+Local Char     PTSIDES2    (100)(1..500)
+Local Char     PCFGLIN     (100)(1..500)
+Local Char     PCFGALP1    (100)(1..500)
+Local Char     PCFGALP2    (100)(1..500)
+Local Char     PCFGALPD2   (100)(1..500)
+Local Char     PCFGALP3    (100)(1..500)
+Local Char     PCFGALPD3   (100)(1..500)
+Local Char     PCFGALP4    (100)(1..500)
+Local Char     PCFGALPD4   (100)(1..500)
+Local Decimal  PCFGNUM1    (1..500)
+Local Decimal  PCFGNUM2    (1..500)
+Local Decimal  PSTOCOU     (1..500)
+Local Char     PSTOFCY     (100)(1..500)
+Local Char     PSTOFCYD    (100)(1..500)
+Local Char     PLEGCPY     (100)(1..500)
+Local Char     PWRH        (100)(1..500)
+Local Char     PWRHD       (100)(1..500)
+Local Char     PLOCTYP     (100)(1..500)
+Local Char     PLOC        (100)(1..500)
+Local Char     PSTU        (100)(1..500)
+Local Decimal  PQTYSTU     (1..500)
+Local Char     PPCU        (100)(1..500)
+Local Decimal  PQTYPCU     (1..500)
+Local Decimal  PPCUSTUCOE  (1..500)
+Local Char     PSTA        (100)(1..500)
+Local Char     PLOT        (100)(1..500)
+Local Char     PSERNUM     (100)(1..500)
+Local Date     PSHLDAT     (1..500)
+Local Char     PDIE0       (100)(1..500)
+Local Char     PDIE1       (100)(1..500)
+Local Char     PCCE0       (100)(1..500)
+Local Char     PCCE1       (100)(1..500)
+Local Char     PERRCOD     (100)
+Local Char     PERRDES     (100)
+
+Call CNSSTKITM('LEN0001310','','','80A','','','','',32,0.0,
+&                 '','','','','','','',[00/00/0000],
+&                 PITMREF,PITMDES1,PTSICOD0,PTSIDES0,PTSICOD1,PTSIDES1,PTSICOD2,PTSIDES2,PCFGLIN,PCFGALP1,
+&                 PCFGALP2,PCFGALPD2,PCFGALP3,PCFGALPD3,PCFGALP4,PCFGALPD4,PCFGNUM1,PCFGNUM2,PSTOCOU,PSTOFCY,PSTOFCYD,PLEGCPY,PWRH,
+&                 PWRHD,PLOCTYP,PLOC,PSTU,PQTYSTU,PPCU,PQTYPCU,PPCUSTUCOE,PSTA,PLOT,PSERNUM,PSHLDAT,PDIE0,PDIE1,PCCE0,PCCE1,PERRCOD,PERRDES)
+
+Infbox num$(PITMREF)
+Infbox num$(PITMDES1)
+Infbox num$(PTSICOD0)
+Infbox num$(PTSIDES0)
+Infbox num$(PTSICOD1)
+Infbox num$(PTSIDES1)
+Infbox num$(PTSICOD2)
+Infbox num$(PTSIDES2)
+Infbox num$(PCFGLIN)
+Infbox num$(PCFGALP1)
+Infbox num$(PCFGALP2)
+Infbox num$(PCFGALPD2)
+Infbox num$(PCFGALP3)
+Infbox num$(PCFGALPD3)
+Infbox num$(PCFGALP4)
+Infbox num$(PCFGALPD4)
+Infbox num$(PCFGNUM1)
+Infbox num$(PCFGNUM2)
+Infbox num$(PSTOCOU)
+Infbox num$(PSTOFCY)
+Infbox num$(PSTOFCYD)
+Infbox num$(PLEGCPY)
+Infbox num$(PWRH)
+Infbox num$(PWRHD)
+Infbox num$(PLOCTYP)
+Infbox num$(PLOC)
+Infbox num$(PSTU)
+Infbox num$(PQTYSTU)
+Infbox num$(PPCU)
+Infbox num$(PQTYPCU)
+Infbox num$(PPCUSTUCOE)
+Infbox num$(PSTA)
+Infbox num$(PLOT)
+Infbox num$(PSERNUM)
+Infbox num$(PSHLDAT)
+Infbox num$(PDIE0)
+Infbox num$(PDIE1)
+Infbox num$(PCCE0)
+Infbox num$(PCCE1)
+Infbox num$(PERRCOD)
+Infbox num$(PERRDES)
+
+End
+
+################################################################################
+Subprog CNSSTKITM(WFITMREF,WFTSICOD0,WFTSICOD1,WFTSICOD2,WFCFGLIN,WFCFGALP2,WFCFGALP3,WFCFGALP4,WFCFGNUM1,WFCFGNUM2,
+&                 WFSTOFCY,WFWRK,WFLOCTYP,WFLOC,WFSTA,WFLOT,WFSERNUM,WFSHLDAT,
+&                 WITMREF,WITMDES1,WTSICOD0,WTSIDES0,WTSICOD1,WTSIDES1,WTSICOD2,WTSIDES2,WCFGLIN,WCFGALP1,
+&                 WCFGALP2,WCFGALPD2,WCFGALP3,WCFGALPD3,WCFGALP4,WCFGALPD4,WCFGNUM1,WCFGNUM2,WSTOCOU,WSTOFCY,WSTOFCYD,WLEGCPY,WWRK,
+&                 WWRKD,WLOCTYP,WLOC,WSTU,WQTYSTU,WPCU,WQTYPCU,WPCUSTUCOE,WSTA,WLOT,WSERNUM,WSHLDAT,WDIE0,WDIE1,WCCE0,WCCE1,WERRCOD,WERRDES)
+
+# parámetros de entrada para la selección de artículos
+Value Char    WFITMREF,WFTSICOD0,WFTSICOD1,WFTSICOD2,WFCFGLIN,WFCFGALP2,WFCFGALP3,WFCFGALP4
+Value Decimal WFCFGNUM1,WFCFGNUM2
+# parámetros de entrada para la selección de datos de stock
+Value Char    WFSTOFCY,WFWRK,WFLOCTYP,WFLOC,WFSTA,WFLOT,WFSERNUM
+Value Date    WFSHLDAT
+# parámetros de salida
+Variable Char     WITMREF     ()(1..500)
+Variable Char     WITMDES1    ()(1..500)
+Variable Char     WTSICOD0    ()(1..500)
+Variable Char     WTSIDES0    ()(1..500)
+Variable Char     WTSICOD1    ()(1..500)
+Variable Char     WTSIDES1    ()(1..500)
+Variable Char     WTSICOD2    ()(1..500)
+Variable Char     WTSIDES2    ()(1..500)
+Variable Char     WCFGLIN     ()(1..500)
+Variable Char     WCFGALP1    ()(1..500)
+Variable Char     WCFGALP2    ()(1..500)
+Variable Char     WCFGALPD2   ()(1..500)
+Variable Char     WCFGALP3    ()(1..500)
+Variable Char     WCFGALPD3   ()(1..500)
+Variable Char     WCFGALP4    ()(1..500)
+Variable Char     WCFGALPD4   ()(1..500)
+Variable Decimal  WCFGNUM1    (1..500)
+Variable Decimal  WCFGNUM2    (1..500)
+Variable Decimal  WSTOCOU     (1..500)
+Variable Char     WSTOFCY     ()(1..500)
+Variable Char     WSTOFCYD    ()(1..500)
+Variable Char     WLEGCPY     ()(1..500)
+Variable Char     WWRK        ()(1..500)
+Variable Char     WWRKD       ()(1..500)
+Variable Char     WLOCTYP     ()(1..500)
+Variable Char     WLOC        ()(1..500)
+Variable Char     WSTU        ()(1..500)
+Variable Decimal  WQTYSTU     (1..500)
+Variable Char     WPCU        ()(1..500)
+Variable Decimal  WQTYPCU     (1..500)
+Variable Decimal  WPCUSTUCOE  (1..500)
+Variable Char     WSTA        ()(1..500)
+Variable Char     WLOT        ()(1..500)
+Variable Char     WSERNUM     ()(1..500)
+Variable Date     WSHLDAT     (1..500)
+Variable Char     WDIE0       ()(1..500)
+Variable Char     WDIE1       ()(1..500)
+Variable Char     WCCE0       ()(1..500)
+Variable Char     WCCE1       ()(1..500)
+Variable Char     WERRCOD     ()
+Variable Char     WERRDES     ()
+
+# declaración de variables
+Local Integer LMAXREG : LMAXREG = 500
+
+
+  Gosub ABRIR_TABLAS
+  Gosub COMPRUEBA_PARAMS
+
+  If WERRCOD <> '0' Then
+    Gosub CERRAR_TABLAS
+    End
+  Else
+    Gosub EJECUTA_PROCESO
+  Endif
+
+  Gosub CERRAR_TABLAS
+
+End
+
+################################################################################
+$ABRIR_TABLAS
+  If !clalev([F:ZITM]) Then : Local File ITMMASTER  [F:ZITM] : Endif
+  If !clalev([F:ZFCY]) Then : Local File FACILITY   [F:ZFCY] : Endif
+  If !clalev([F:ZWRH]) Then : Local File WAREHOUSE  [F:ZWRH] : Endif
+  If !clalev([F:ZAX0]) Then : Local File ATEXTRA    [F:ZAX0] : Endif
+  If !clalev([F:ZAX1]) Then : Local File ATEXTRA    [F:ZAX1] : Endif
+Return
+
+################################################################################
+$CERRAR_TABLAS
+  If clalev([F:ZITM]) Then : Close Local File [F:ZITM] : Endif
+  If clalev([F:ZFCY]) Then : Close Local File [F:ZFCY] : Endif
+  If clalev([F:ZWRH]) Then : Close Local File [F:ZWRH] : Endif
+  If clalev([F:ZAX0]) Then : Close Local File [F:ZAX0] : Endif
+  If clalev([F:ZAX1]) Then : Close Local File [F:ZAX1] : Endif
+Return
+
+################################################################################
+$COMPRUEBA_PARAMS
+  WERRCOD = '0'
+
+  # comprueba artículo
+  If WFITMREF <> '' Then
+    Read [F:ZITM]ITM0 = WFITMREF
+    If fstat <> 0 Then
+      WERRCOD = '1'
+    Else
+      If [F:ZITM]ZCONSULTABLE <> 2 Then
+        WERRCOD = '2'
+      Endif
+      If WFTSICOD0 <> '' Then
+        If [F:ZITM]TSICOD(0)    <> WFTSICOD0  Then
+          WERRCOD = '3'
+        Endif
+      Endif
+      If WFTSICOD1 <> '' Then
+        If [F:ZITM]TSICOD(1)    <> WFTSICOD1  Then
+          WERRCOD = '4'
+        Endif
+      Endif
+      If WFTSICOD2 <> '' Then
+        If [F:ZITM]TSICOD(2)    <> WFTSICOD2  Then
+          WERRCOD = '5'
+        Endif
+      Endif
+      If WFCFGLIN <> '' Then
+        If [F:ZITM]CFGLIN       <> WFCFGLIN   Then
+          WERRCOD = '6'
+        Endif
+      Endif
+      If WFCFGALP2 <> '' Then
+        If [F:ZITM]CFGFLDALP2   <> WFCFGALP2  Then
+          WERRCOD = '7'
+        Endif
+      Endif
+      If WFCFGALP3 <> '' Then
+        If [F:ZITM]CFGFLDALP3   <> WFCFGALP3  Then
+          WERRCOD = '8'
+        Endif
+      Endif
+      If WFCFGALP4 <> '' Then
+        If [F:ZITM]CFGFLDALP4   <> WFCFGALP4  Then
+          WERRCOD = '9'
+        Endif
+      Endif
+    Endif
+  Endif
+
+  # comprueba planta
+  If WFSTOFCY <> '' Then
+    Read [F:ZFCY]FCY0 = WFSTOFCY
+    If fstat <> 0 Then
+      WERRCOD = '10'
+    Endif
+  Endif
+
+  # comprueba almacén
+  If WFWRK <> '' Then
+    Read [F:ZWRH]WRH0 = WFWRK
+    If fstat <> 0 Then
+      WERRCOD = '11'
+    Endif
+  Endif
+
+  Filter [F:ZAX0] Where CODFIC = 'ATABDIV' and ZONE = 'LNGDES' and LANGUE = GLANGUE and IDENT1 = '6004' and IDENT2 = WERRCOD
+  Read   [F:ZAX0] First
+  If !fstat Then
+    WERRDES = [F:ZAX0]TEXTE
+  Endif
+  Filter [F:ZAX0]
+Return
+
+################################################################################
+$EJECUTA_PROCESO
+# llenar los arrays con Clientes
+Local Integer I : I = 1
+Local Clbfile LCRIT(1)
+Local Decimal LNUMFILTER
+
+  LCRIT = '1=1'
+  # parámetros para la selección de artículos
+  If WFITMREF   <> ''           Then : LCRIT -= 'AND WFITMREF="'  + WFITMREF  + '"' : Endif
+  If WFTSICOD0  <> ''           Then : LCRIT -= 'AND WFTSICOD0="' + WFTSICOD0 + '"' : Endif
+  If WFTSICOD1  <> ''           Then : LCRIT -= 'AND WFTSICOD1="' + WFTSICOD1 + '"' : Endif
+  If WFTSICOD2  <> ''           Then : LCRIT -= 'AND WFTSICOD2="' + WFTSICOD2 + '"' : Endif
+  If WFCFGLIN   <> ''           Then : LCRIT -= 'AND WFCFGLIN="'  + WFCFGLIN  + '"' : Endif
+  If WFCFGALP2  <> ''           Then : LCRIT -= 'AND WFCFGALP2="' + WFCFGALP2 + '"' : Endif
+  If WFCFGALP3  <> ''           Then : LCRIT -= 'AND WFCFGALP3="' + WFCFGALP3 + '"' : Endif
+  If WFCFGALP4  <> ''           Then : LCRIT -= 'AND WFCFGALP4="' + WFCFGALP4 + '"' : Endif
+  If WFCFGNUM1  <> 0            Then : LCRIT -= 'AND WFCFGNUM1='  + num$(WFCFGNUM1) : Endif
+  If WFCFGNUM2  <> 0            Then : LCRIT -= 'AND WFCFGNUM2='  + num$(WFCFGNUM2) : Endif
+  # parámetros para la selección de datos de stock
+  If WFSTOFCY   <> ''           Then : LCRIT -= 'AND WFSTOFCY="'  + WFSTOFCY  + '"' : Endif
+  If WFWRK      <> ''           Then : LCRIT -= 'AND WFWRH="'     + WFWRK     + '"' : Endif
+  If WFLOCTYP   <> ''           Then : LCRIT -= 'AND WFLOCTYP="'  + WFLOCTYP  + '"' : Endif
+  If WFLOC      <> ''           Then : LCRIT -= 'AND WFLOC="'     + WFLOC     + '"' : Endif
+  If WFSTA      <> ''           Then : LCRIT -= 'AND WFSTA="'     + WFSTA     + '"' : Endif
+  If WFLOT      <> ''           Then : LCRIT -= 'AND WFLOT="'     + WFLOT     + '"' : Endif
+  If WFSERNUM   <> ''           Then : LCRIT -= 'AND WFSERNUM="'  + WFSERNUM  + '"' : Endif
+  If WFSHLDAT   <> [00/00/0000] Then : LCRIT -= 'AND WFSHLDAT='   + WFSHLDAT        : Endif
+
+  If !clalev([F:ZVSI]) Then : Local File ZVCNSSTKITM  [F:ZVSI] : Endif
+
+  Filter [F:ZVSI] Where evalue(LCRIT)
+  Read   [F:ZVSI] First
+  LNUMFILTER = rowcount([F:ZVSI])
+  For [F:ZVSI]
+    WITMREF(I)     = [F:ZVSI]WFITMREF
+    WITMDES1(I)    = [F:ZVSI]WFITMDES1
+    WTSICOD0(I)    = [F:ZVSI]WFTSICOD0
+    WTSIDES0(I)    = [F:ZVSI]WFTSIDES0
+    WTSICOD1(I)    = [F:ZVSI]WFTSICOD1
+    WTSIDES1(I)    = [F:ZVSI]WFTSIDES1
+    WTSICOD2(I)    = [F:ZVSI]WFTSICOD2
+    WTSIDES2(I)    = [F:ZVSI]WFTSIDES2
+    WCFGLIN(I)     = [F:ZVSI]WFCFGLIN
+    WCFGALP1(I)    = [F:ZVSI]WFCFGALP1
+    WCFGALP2(I)    = [F:ZVSI]WFCFGALP2
+    WCFGALPD2(I)   = [F:ZVSI]WFCFGALPD2
+    WCFGALP3(I)    = [F:ZVSI]WFCFGALP3
+    WCFGALPD3(I)   = [F:ZVSI]WFCFGALPD3
+    WCFGALP4(I)    = [F:ZVSI]WFCFGALP4
+    WCFGALPD4(I)   = [F:ZVSI]WFCFGALPD4
+    WCFGNUM1(I)    = [F:ZVSI]WFCFGNUM1
+    WCFGNUM2(I)    = [F:ZVSI]WFCFGNUM2
+    WSTOCOU(I)     = [F:ZVSI]WFSTOCOU
+    WSTOFCY(I)     = [F:ZVSI]WFSTOFCY
+    WSTOFCYD(I)    = [F:ZVSI]WFSTOFCYD
+    WLEGCPY(I)     = [F:ZVSI]WLEGCPY
+    WWRK(I)        = [F:ZVSI]WFWRH
+    WWRKD(I)       = [F:ZVSI]WFWRHD
+    WLOCTYP(I)     = [F:ZVSI]WFLOCTYP
+    WLOC(I)        = [F:ZVSI]WFLOC
+    WSTU(I)        = [F:ZVSI]WFSTU
+    WQTYSTU(I)     = [F:ZVSI]WFQTYSTU
+    WPCU(I)        = [F:ZVSI]WFPCU
+    WQTYPCU(I)     = [F:ZVSI]WFQTYPCU
+    WPCUSTUCOE(I)  = [F:ZVSI]WFPCUSTUCOE
+    WSTA(I)        = [F:ZVSI]WFSTA
+    WLOT(I)        = [F:ZVSI]WFLOT
+    WSERNUM(I)     = [F:ZVSI]WFSERNUM
+    WSHLDAT(I)     = [F:ZVSI]WFSHLDAT
+    WDIE0(I)       = [F:ZVSI]WDIE0
+    WDIE1(I)       = [F:ZVSI]WDIE1
+    WCCE0(I)       = [F:ZVSI]WCCE0
+    WCCE1(I)       = [F:ZVSI]WCCE1
+    I += 1
+    If I >= LMAXREG  : Break : Endif
+  Next
+  Filter [F:ZVSI]
+
+  If LNUMFILTER > LMAXREG Then
+    WERRCOD = '90'
+    WERRDES = 'Tabla completa.'-num$(LNUMFILTER-LMAXREG)-'líneas sin mostrar'
+  Elsif LNUMFILTER = 0 Then
+    WERRCOD = '91'
+  Endif
+
+  If WERRCOD <> '90' Then
+    Filter [F:ZAX0] Where CODFIC = 'ATABDIV' and ZONE = 'LNGDES' and LANGUE = GLANGUE and IDENT1 = '6004' and IDENT2 = WERRCOD
+    Read   [F:ZAX0] First
+    If !fstat Then
+      WERRDES = [F:ZAX0]TEXTE
+    Endif
+    Filter [F:ZAX0]
+  Endif
+
+  If clalev([F:ZVSI])  Then : Close Local File [F:ZVSI] : Endif
+
+Return

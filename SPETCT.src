@@ -1,0 +1,213 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+$ACTION
+
+#Infbox ACTION
+Case ACTION
+  When "OUVRE"        : Gosub OUVRE
+  When "APRES_CRE"    : Gosub APRES_CRE
+  When "APRES_MOD"    : Gosub APRES_MOD
+  When "FIN"          : Gosub FIN
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+##############################################################
+$OUVRE
+  If !clalev([F:ZADI]) Then : Local File ATABDIV [F:ZADI] : Endif
+  If !clalev([F:ZAX0]) Then : Local File ATEXTRA [F:ZAX0] : Endif
+  If !clalev([F:ZAX1]) Then : Local File ATEXTRA [F:ZAX1] : Endif
+Return
+
+##############################################################
+$APRES_CRE
+  Case [M:TCT1]TCT
+    When  "NOM"     : Gosub RELLENA_NOM
+    When  "POS"     : Gosub RELLENA_POS
+    When  "TIP"     : Gosub RELLENA_TIP
+  Endcase
+Return
+
+##############################################################
+$APRES_MOD
+  Case [M:TCT1]TCT
+    When  "NOM"     : Gosub RELLENA_NOM
+    When  "POS"     : Gosub RELLENA_POS
+    When  "TIP"     : Gosub RELLENA_TIP
+  Endcase
+Return
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+##############################################################
+$RELLENA_NOM
+Local Integer LCON
+
+  # limpia tabla ATABDIV
+  Trbegin [F:ZADI]
+  Delete  [F:ZADI] Where NUMTAB = 6001
+  If !fstat Then
+    Commit
+  Else
+    Rollback
+  Endif
+
+  # limpia tabla ATEXTRA0
+  Trbegin [F:ZAX0]
+  Delete  [F:ZAX0] Where CODFIC = "ATABDIV" and ZONE = "LNGDES" and LANGUE = GLANGUE and IDENT1 = "6001"
+  Delete  [F:ZAX1] Where CODFIC = "ATABDIV" and ZONE = "SHODES" and LANGUE = GLANGUE and IDENT1 = "6001"
+  If !fstat Then
+    Commit
+  Else
+    Rollback
+  Endif
+
+  # rellena tablas
+  For LCON=0 To [M:TCT1]BASTAB-1
+    [F:ZADI]NUMTAB  = 6001
+    [F:ZADI]CODE    = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX0]CODFIC  = "ATABDIV"
+    [F:ZAX0]ZONE    = "LNGDES"
+    [F:ZAX0]LANGUE  = GLANGUE
+    [F:ZAX0]IDENT1  = "6001"
+    [F:ZAX0]IDENT2  = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX0]TEXTE   = [M:TCT1]DESCOD(LCON)
+    [F:ZAX1]CODFIC  = "ATABDIV"
+    [F:ZAX1]ZONE    = "SHODES"
+    [F:ZAX1]LANGUE  = GLANGUE
+    [F:ZAX1]IDENT1  = "6001"
+    [F:ZAX1]IDENT2  = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX1]TEXTE   = left$([M:TCT1]DESCOD(LCON),12)
+    Trbegin [F:ZADI]
+    Write   [F:ZADI]
+    Write   [F:ZAX0]
+    Write   [F:ZAX1]
+    If !fstat Then
+      Commit
+    Else
+      Rollback
+    Endif
+  Next
+  If dim(LCON) > 0 Then : Kill LCON : Endif
+Return
+
+##############################################################
+$RELLENA_POS
+Local Integer LCON
+
+  # limpia tabla ATABDIV
+  Trbegin [F:ZADI]
+  Delete  [F:ZADI] Where NUMTAB = 6002
+  If !fstat Then
+    Commit
+  Else
+    Rollback
+  Endif
+
+  # limpia tabla ATEXTRA0
+  Trbegin [F:ZAX0]
+  Delete  [F:ZAX0] Where CODFIC = "ATABDIV" and ZONE = "LNGDES" and LANGUE = GLANGUE and IDENT1 = "6002"
+  Delete  [F:ZAX1] Where CODFIC = "ATABDIV" and ZONE = "SHODES" and LANGUE = GLANGUE and IDENT1 = "6002"
+  If !fstat Then
+    Commit
+  Else
+    Rollback
+  Endif
+
+  # rellena tablas
+  For LCON=0 To [M:TCT1]BASTAB-1
+    [F:ZADI]NUMTAB  = 6002
+    [F:ZADI]CODE    = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX0]CODFIC  = "ATABDIV"
+    [F:ZAX0]ZONE    = "LNGDES"
+    [F:ZAX0]LANGUE  = GLANGUE
+    [F:ZAX0]IDENT1  = "6002"
+    [F:ZAX0]IDENT2  = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX0]TEXTE   = [M:TCT1]DESCOD(LCON)
+    [F:ZAX1]CODFIC  = "ATABDIV"
+    [F:ZAX1]ZONE    = "SHODES"
+    [F:ZAX1]LANGUE  = GLANGUE
+    [F:ZAX1]IDENT1  = "6002"
+    [F:ZAX1]IDENT2  = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX1]TEXTE   = left$([M:TCT1]DESCOD(LCON),12)
+    Trbegin [F:ZADI]
+    Write   [F:ZADI]
+    Write   [F:ZAX0]
+    Write   [F:ZAX1]
+    If !fstat Then
+      Commit
+    Else
+      Rollback
+    Endif
+  Next
+  If dim(LCON) > 0 Then : Kill LCON : Endif
+Return
+
+##############################################################
+$RELLENA_TIP
+Local Integer LCON
+
+  # limpia tabla ATABDIV
+  Trbegin [F:ZADI]
+  Delete  [F:ZADI] Where NUMTAB = 6003
+  If !fstat Then
+    Commit
+  Else
+    Rollback
+  Endif
+
+  # limpia tabla ATEXTRA0
+  Trbegin [F:ZAX0]
+  Delete  [F:ZAX0] Where CODFIC = "ATABDIV" and ZONE = "LNGDES" and LANGUE = GLANGUE and IDENT1 = "6003"
+  Delete  [F:ZAX1] Where CODFIC = "ATABDIV" and ZONE = "SHODES" and LANGUE = GLANGUE and IDENT1 = "6003"
+  If !fstat Then
+    Commit
+  Else
+    Rollback
+  Endif
+
+  # rellena tablas
+  For LCON=0 To [M:TCT1]BASTAB-1
+    [F:ZADI]NUMTAB  = 6003
+    [F:ZADI]CODE    = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX0]CODFIC  = "ATABDIV"
+    [F:ZAX0]ZONE    = "LNGDES"
+    [F:ZAX0]LANGUE  = GLANGUE
+    [F:ZAX0]IDENT1  = "6003"
+    [F:ZAX0]IDENT2  = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX0]TEXTE   = [M:TCT1]DESCOD(LCON)
+    [F:ZAX1]CODFIC  = "ATABDIV"
+    [F:ZAX1]ZONE    = "SHODES"
+    [F:ZAX1]LANGUE  = GLANGUE
+    [F:ZAX1]IDENT1  = "6003"
+    [F:ZAX1]IDENT2  = ctrans(space$(5-len(num$(LCON+1)))+num$(LCON+1),' ','0')
+    [F:ZAX1]TEXTE   = left$([M:TCT1]DESCOD(LCON),12)
+    Trbegin [F:ZADI]
+    Write   [F:ZADI]
+    Write   [F:ZAX0]
+    Write   [F:ZAX1]
+    If !fstat Then
+      Commit
+    Else
+      Rollback
+    Endif
+  Next
+  If dim(LCON) > 0 Then : Kill LCON : Endif
+Return
+
+##############################################################
+$FIN
+  Close Local File [ZADI],[ZAX0],[ZAX1]
+Return
+
+##############################################################
+#################    ACCIONES DE CAMPO    ####################
+##############################################################
+
+##############################################################
+##################    FUNCIONES PROPIAS    ###################
+##############################################################

@@ -1,0 +1,109 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+############################################################################
+# Script name : SPESMO
+# Description : Salidas varias
+# Module      : Stock
+# Version     : 1
+# Created by  : Miguel Llaja
+# Company     : Auren España
+# Created date: 11/04/2022
+############################################################################
+
+######################################################################################
+######################################################################################
+$ACTION
+#Infbox ACTION
+Case ACTION
+  When "LIENS"  : Gosub LIENS
+  When "INICRE"  : Gosub INICRE
+  When Default
+Endcase
+
+Case ACTION
+ When "SEL_TABLE"
+  Case TABLE
+   When "ZSELBPC"     : Gosub ZSELBPC
+  Endcase
+Endcase
+Return
+
+######################################################################################
+$ZSELBPC
+OBJET = "BPC"
+CRITERE = "([F:BPC]BCGCOD = 'DEU' or [F:BPC]BCGCOD = 'DOC' or [F:BPC]BCGCOD = 'MUT' or [F:BPC]BCGCOD = 'PAR') or ([F:BPC]BPCNUM='10ICR' or [F:BPC]BPCNUM='10REF')"
+
+Return
+
+######################################################################################
+$INICRE
+Gosub ACTION From SUBSMO
+GPE=1
+[F:SMH]WRHE=[M:SMO0]WRHE
+Return
+
+######################################################################################
+$LIENS
+Gosub ACTION From SUBSMO
+GPE = 1
+Grizo [M:SMO0]ZFAC
+#If [M:SMO0]VCRNUM <> ""
+#  #Grizo [M:SMO0]ZBPC
+#  Grizo [M:SMO0]ZFAC
+#  #Grizo [M:SMO0]ZFCY
+#Endif
+If [M:SMO0]ZFAC <> 1
+  Grizo [M:SMO0]
+  Grizo [M:SMO1]
+Else
+  Actzo [M:SMO0]
+  Actzo [M:SMO1]
+Endif
+Return
+
+######################################################################################
+######################################################################################
+## Etiqueta añadida por el supervisor (pantalla SMO0) 11/04/2022 18:51:53 (ADMIN)
+######################################################################################
+Subprog C_ZBPC(VALEUR)
+Variable Char    VALEUR()
+If VALEUR <> ""
+  If !clalev([F:ZBPC])  Local File BPCUSTOMER [ZBPC] : Endif
+  Read [F:ZBPC]BPC0=VALEUR
+  If !fstat
+    If [F:ZBPC]BCGCOD <> 'DEU' and [F:ZBPC]BCGCOD <> 'DOC' and [F:ZBPC]BCGCOD <> 'MUT' and [F:ZBPC]BCGCOD <> 'PAR' and [F:ZBPC]BPCNUM<>'10ICR' and [F:ZBPC]BPCNUM<>'10REF'
+      Errbox "Valor incorrecto"
+      mkstat = 2
+      End
+    Endif
+  Else
+    Errbox "Valor incorrecto"
+    mkstat = 2
+    End
+  Endif
+Endif
+If [M:SMO0]STOFCY = "90DIP" and VALEUR = ""
+  Errbox "Campo obligatorio"
+  mkstat = 2
+Endif
+End
+
+Subprog C_ZFCY(VALEUR)
+Variable Char    VALEUR()
+If [M:SMO0]STOFCY <> "90DIP" and VALEUR = ""
+  Errbox "Campo obligatorio"
+  mkstat = 2
+Endif
+End
+
+
+######################################################################################
+######################################################################################
+## Etiqueta añadida por el supervisor (pantalla SMO1) 21/06/2022 15:29:31 (ADMIN)
+######################################################################################
+Subprog C_CCE2(VALEUR)
+Variable Char    VALEUR()
+End
+
+
+######################################################################################
+

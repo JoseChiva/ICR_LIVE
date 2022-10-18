@@ -1,0 +1,114 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$ Factura de proveedor
+# 06.330.424 - JC.31032022.Control/aviso al borrar factura si está presentada al SII
+#########################################################################################
+
+$ACTION
+
+#If GUSER="ADMIN" Then : Infbox ACTION : Endif
+Case ACTION
+  When "OUVRE"          : Gosub OUVRE
+  When "ZAPCHOI"        : Gosub ZAPCHOI
+  When "AVANTBOUT"      : Gosub AVANTBOUT
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+##############################################################
+$OUVRE
+  Local Char LMSS(250)                                                    # 06.330.424.new
+Return
+
+##############################################################
+$ZAPCHOI
+  LMSS = "el borrado" : Gosub COMPRUEBA_SII                               # 06.330.424.new
+Return
+
+##############################################################
+$AVANTBOUT
+  Case BOUT
+    When  "4"   : LMSS = "la cancelación contable" : Gosub COMPRUEBA_SII  # 06.330.424.new
+  Endcase
+Return
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+##############################################################
+# 06.330.424.ini
+$COMPRUEBA_SII
+  OK=1
+  If !clalev([F:ZDSII]) Then : Local File DCLSII [F:ZDSII] : Endif
+  Filter [F:ZDSII] Where VCRNUM = [M:BIS0]NUM and VCRSTA <> 1
+  Read [F:ZDSII] First
+  If !fstat Then
+    Local Integer YESNO : YESNO = 1
+    Call OUINON("La factura "+[M:BIS0]NUM+" ya ha sido enviada al SII.\¿Realmente deseas continuar con "+LMSS+"?",YESNO) From GESECRAN
+    If YESNO <> 2 Then
+      OK=0
+      Return
+    Endif
+  Endif
+  Filter [F:ZDSII]
+  Close Local File [ZDSII]
+Return
+# 06.330.424.fin
+
+##############################################################
+#################    ACCIONES DE CAMPO    ####################
+##############################################################
+Subprog D_VAT(VALEUR)
+Variable Char    VALEUR()
+
+if [M:BIS0]CPY = '0002' and [M:BIS1]VAC = 'NAC' 
+	GEXETAX = 'SP001'
+elsif [M:BIS0]CPY = '0001' and [M:BIS1]VAC = 'NAC' 
+ GEXETAX = 'SP005'
+endif
+
+Local Char CODTAX(GLONVAT)
+##### BESPR 87307 07/08/2013 # Intercompany enhancement
+Gosub SETNOL from SUBBIS2
+If GFONC1 = "GESBISI" and (([M]CPY <> [M]CPYLIN(NOL)) or (GCURINTCPY <> "" and GCURINTCPY <> [M]CPYLIN(NOL)))
+  Call CONT_INTCPYCOA ([M]CPYLIN(NOL)) From INTCPYLIB
+Endif
+#####
+Gosub RECH_ACCGEN From SUBBICS
+Call LECTURE("GAC",COMPTE,PLAN) From CONTOBJ
+If [F:GAC]FLGVAT=1 : End : Endif
+# Paramètre EXETAX (Tronc commun)
+VALEUR = GEXETAX
+# Code taxe renseigné au niveau du compte général
+If [F:GAC]VAT(0)<>""
+ VALEUR = [F:GAC]VAT(0)
+ If dim([F:GAC]VAT)>1 : [M]TAX1(nolign-1) = [F:GAC]VAT(1) : Endif
+ If dim([F:GAC]VAT)>2 : [M]TAX2(nolign-1) = [F:GAC]VAT(2) : Endif
+Endif
+# Code taxe n'est pas obligatoire au niveau du compte
+# On va chercher le code taxe associé au régime tiers
+If GSAITAX=1 & [F:GAC]VAT(0)=""
+ Call LEC_TVB(GCURLEG,[M:BIS1]VAC) From CPTLEC
+ If !fstat & [F:TVB]ENAFLG=2
+  CODTAX = [F:TVB]VAT
+  If CODTAX<>""
+   Look [TVT]TVT0 = CODTAX;GCURLEG
+   If !fstat
+    VALEUR = CODTAX
+   Else
+    Look [TVT]TVT0 = CODTAX;""
+    If !fstat
+     VALEUR = CODTAX
+    Endif
+   Endif
+  Endif
+ Endif
+Endif
+[M]VAT(nolign-1) = VALEUR
+Gosub CALTVA from subbis2
+End
+##############################################################
+##################    FUNCIONES PROPIAS    ###################
+##############################################################

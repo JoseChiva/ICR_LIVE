@@ -1,0 +1,39 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+# Gestión de la máscara ITM0 (Especifico)
+$ACTION
+
+#If GUSER="admin" Then : Infbox ACTION : Endif
+Case ACTION
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+##############################################################
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+
+##############################################################
+#################    ACCIONES DE CAMPO    ####################
+##############################################################
+##############################################################
+Subprog AM_TCLCOD(VALEUR)
+Variable Char    VALEUR()
+  If !clalev([F:ZITG]) Then : Local File ITMCATEG [F:ZITG] : Endif
+  Filter [F:ZITG] Where TCLCOD = VALEUR
+  Read [F:ZITG] First
+  If !fstat Then
+    [M:ITM0]ZCONSULTABLE = [F:ZITG]ZCONSULTABLE
+    Affzo [M:ITM0]ZCONSULTABLE
+  Endif
+  Filter [F:ZITG]
+  Close Local File [ZITG]
+End
+
+##############################################################
+##################    FUNCIONES PROPIAS    ###################
+##############################################################

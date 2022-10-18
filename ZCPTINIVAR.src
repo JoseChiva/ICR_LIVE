@@ -1,0 +1,17 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$ 
+#AUREN - V12
+##############################################################################################################
+# ZREFLIB : obtencion documento origen factura de la factura incluida en la linea del pago
+##############################################################################################################
+Subprog ZREFLIB(VCRNUM,BPRVCR,STAT)
+
+Value    Char VCRNUM
+Variable Char BPRVCR
+Variable Integer STAT
+
+If clalev([F:ZSIH])=0 : Local File SINVOICE     [ZSIH] : Endif
+ Read [ZSIH]SIH0 = VCRNUM 
+   If !fstat
+     BPRVCR =[F:ZSIH]BPRVCR
+   Endif
+end

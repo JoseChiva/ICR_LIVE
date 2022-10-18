@@ -1,0 +1,2256 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+###################################################################################
+# History:
+# 2018-07-19 Bader X3-99650: Consolidate payment import code (scripts PAY* / PAYIMPORT)
+#*X3-112211  SMO  Implement control when reading parameters managed by activity code
+# 2019-02-13 Bader X3-122305: SAIMSK: in loop over DUD ignore balanced OIs
+# 2021-03-24 by MRDAB - X3-240077 - MAXLIG non declared - wrong value assigned
+# 2021-11-15 by FPE   - X3-264817 - Read NIVBONPAYE parameter with FCY argument.
+###################################################################################
+
+Call IMPORTATION("PAY") From GIMPOBJ
+End
+# Issue X3-107197 - 2018-09-14 by CBO : PARAMETER AND ACTIVITY CODE
+
+###################################################################################
+$ACTION
+Case ACTION
+ When "EXP_OUVRE" : Gosub EXP_OUVRE
+ When "EXPORT"    : Gosub EXPORT
+ When "IMP_OUVRE" : Gosub IMP_OUVRE
+Endcase
+Return
+
+###################################################################################
+$EXP_OUVRE
+If clalev([F:DUD])=0  : Local File GACCDUDATE  [DUD]  : Endif
+If clalev([F:GAC])=0  : Local File GACCOUNT    [GAC]  : Endif
+
+Local Integer TYPLED
+Local Char PLAN(GLONCOA)
+Return
+
+###################################################################################
+$EXPORT
+
+Case EXPFIC
+
+ When "PYH"
+
+  Call LECLEDMAIN(1,[F:PYH]CPY,TYPLED) From CPTDIV
+  Call LECPLAN([F:PYH]CPY,TYPLED,PLAN) From CPTDIV
+
+ When "PYD"
+
+
+# Bader: 2017-08-15 X3-42421 begin (introduce GIMP(5))
+#  Raz GIMP(1), GIMP(2), GIMP(3), GIMP(4)
+  Raz GIMP(1), GIMP(2), GIMP(3), GIMP(4), GIMP(5)
+# Bader: 2017-08-15 X3-42421 end
+  If [F:PYD]DUDNUM<>0 & [F:PYD]DUDLIG<>0
+   Read [DUD]DUD1 = [F:PYD]DUDNUM;[F:PYD]DUDLIG
+   If fstat=0
+    Read [GAC]GAC1=PLAN;[F:DUD]SAC
+    If fstat : GIMP(1) = [F:GAC]ACC : Endif       : # Compte
+    GIMP(2) = [F:DUD]BPR                          : # Tiers
+    GIMP(3) = format$("D:YYYYMMDD",[F:DUD]DUDDAT) : # Echéance
+    GIMP(4) = [F:DUD]FCY                          : # Site
+   Endif
+  Endif
+
+  Local Char PROTYP(GLONGTE), BPCTYP(GLONGTE), BPSTYP(GLONGTE)
+  Call PARAM([F:DUD]CPY,"BPCORDTYP",[L]BPCTYP) From ADOVAL : # CCL
+  If [L]BPCTYP="" : [L]BPCTYP="*SO" : Endif
+  Call PARAM([F:DUD]CPY,"BPSORDTYP",[L]BPSTYP) From ADOVAL : # CCF
+  If [L]BPSTYP="" : [L]BPSTYP="*PO" : Endif
+  If dim([F:PYD]RITAMT)>0 and func AFNC.ACTIV("KIT")   # Issue X3-107197
+   Call PARAM([F:DUD]CPY,"BPSPROTYP",[L]PROTYP) From ADOVAL : # PRO
+  Endif
+
+  Case [F:PYD]IPTTYP
+   When 1 : [F:PYD]VCRTYP=[L]BPCTYP
+   When 2 : [F:PYD]VCRTYP=[L]BPSTYP
+   When 4 : [F:PYD]VCRTYP=[L]PROTYP
+  Endcase
+
+Endcase
+Return
+
+###################################################################################
+$IMP_OUVRE
+# Bader: 2017-08-15 X3-42421 begin (introduce GIMP(5))
+#  Raz GIMP(1), GIMP(2), GIMP(3), GIMP(4)
+Raz GIMP(1), GIMP(2), GIMP(3), GIMP(4), GIMP(5)
+# Bader: 2017-08-15 X3-42421 end
+Return
+
+###################################################################################
+$OUVRE
+# screens also in SUBPAY3
+Local Mask VENTILE  [VTL]
+Local Mask VENTILE2 [VT2]
+
+# tables also in SUBPAY3 ($OUVRE_FIC)
+If clalev([F:PYD])=0  : Local File PAYMENTD    [PYD]  : Endif
+If clalev([F:PYA])=0  : Local File PAYMENTA    [PYA]  : Endif
+If clalev([F:TPY])=0  : Local File TABPAYTYP   [TPY]  : Endif
+If clalev([F:CDA])=0  : Local File GACCDENCOD  [CDA]  : Endif
+If clalev([F:DUD])=0  : Local File GACCDUDATE  [DUD]  : Endif
+If clalev([F:GTE])=0  : Local File GTYPACCENT  [GTE]  : Endif
+If clalev([F:SIH])=0  : Local File SINVOICE    [SIH]  : Endif
+If clalev([F:PIH])=0  : Local File PINVOICE    [PIH]  : Endif
+If clalev([F:CAC])=0  : Local File GACCCODE    [CAC]  : Endif
+If clalev([F:GAC])=0  : Local File GACCOUNT    [GAC]  : Endif
+If clalev([F:BPS])=0  : Local File BPSUPPLIER  [BPS]  : Endif
+If clalev([F:BPC])=0  : Local File BPCUSTOMER  [BPC]  : Endif
+If clalev([F:BPR])=0  : Local File BPARTNER    [BPR]  : Endif
+If clalev([F:BPA])=0  : Local File BPADDRESS   [BPA]  : Endif
+If clalev([F:AUS])=0  : Local File AUTILIS     [AUS]  : Endif
+If clalev([F:BAN])=0  : Local File BANK        [BAN]  : Endif
+If clalev([F:FCY])=0  : Local File FACILITY    [FCY]  : Endif
+If clalev([F:CPY])=0  : Local File COMPANY     [CPY]  : Endif
+If clalev([F:TCU])=0  : Local File TABCUR      [TCU]  : Endif
+
+If clalev([F:TCA])=0  : Local File TABCOUAFF   [TCA]  : Endif
+
+If clalev([F:HAE3])=0 : Local File GACCENTRY   [HAE3] : Endif
+
+If clalev([F:COA])=0  : Local File GCOA        [COA]  : Endif
+
+If clalev([F:TED])=0  : Local File TABCODEDT   [TED]  : Endif
+
+If clalev([F:TUN])=0  : Local File TABUNIT     [TUN]  : Endif
+If dim([M:PAY3]RITAMT)>0 | dim([M:PAY1]RITAMT)>0 | dim([M:PAY2]RITAMT)>0
+ If clalev([F:RTZ])=0 : Local File RITENZIONE  [RTZ]  : Endif
+Endif
+
+# tables not in SUBPAY3
+If clalev([F:HAE])=0  : Local File GACCENTRY   [HAE]  : Endif
+If clalev([F:BID])=0  : Local File BID         [BID]  : Endif
+If clalev([F:ADI])=0  : Local File ATABDIV     [ADI]  : Endif
+If clalev([F:PYH2])=0 : Local File PAYMENTH    [PYH2] : Endif
+If clalev([F:PYL])=0  : Local File PAYLOT      [PYL]  : Endif
+If clalev([F:CLS])=0  : Local File GACCCLS     [CLS]  : Endif
+If clalev([F:ATZ])=0  : Local File ATABZON     [ATZ]  : Endif
+If clalev([F:AMZ])=0  : Local File AMSKZON     [AMZ]  : Endif
+If clalev([F:AMP])=0  : Local File AMSKPAR     [AMP]  : Endif
+
+If filinfo(filpath("FIL","MANDATE","fde",""),0)>0
+ If clalev([F:MDT])=0 : Local File MANDATE   [MDT] : Endif
+Endif
+
+Local Decimal MT, MT2, PRCCNV, AROQTE, ARODEV
+Local Integer AX, NUMADI, SIGN, STATX, MAXPAZ, NOL, NOLA, I, J, K, MA, SVGNB, OKTCA
+Local Libelle OKPYH, USRPAZ, MAXPAZ, LOCIN, BPRTYP
+Local Char    CHPIMP(20), CHPIMPLIB(30) , CHPIMPTYP(3)
+Local Char    COMPTREG(GLONANM), PRIO(2), CDADEF(GLONCDA), PROTYP(GLONGTE), BPCTYP(GLONGTE), BPSTYP(GLONGTE), RTZCUR(GLONCUR)
+Local Char    SITE(GLONFCY), SOC(GLONCPY), COMPTE(GLONGAC), XCRITERE(200), OPT(1)
+Local Date    XDAT
+#issue X3-218029
+Local Datetime PAYAPPDAT
+Local Char     PAYAPPUSR(GLONAUS)
+Local Integer  PAYAPPFLG
+# Issue X3-240077 by MRDAB
+Local Integer  MAX_TPY : [L]MAX_TPY = nbrecord([F:TPY])
+Local Char     APPTPY(GLONTPY)(0..[L]MAX_TPY)
+# Issue X3-240077 end
+Local Integer  APPTPYNB : [L]APPTPYNB=0
+#issue X3-218029 end
+
+Local Integer WNBSOC : WNBSOC = 0
+For [CPY]CPY0 Where CPYLEGFLG=2
+ WNBSOC += 1
+Next
+#I=WNBSOC*nbrecord([F:TPY])
+I=min(WNBSOC*nbrecord([F:TPY]),999)
+
+Local Char    COMPTLOT(GLONANM), LOTID(10)(I), LOTCOD(20)(I)
+Local Integer LOTX(I), NBLOT, X1
+
+# Multi-référentiel
+Global Integer GNBTYPLED                             : # Nb référentiels <> pour la société
+Global Integer GNBPLAN                               : # Nb de plans comptables (max 10)
+Global Integer GNBAXE                                : # Nb d'axes à saisir (max 20)
+Global Char    GPLAN(GLONCOA)(1..10)                 : # Plans (COA)
+Global Char    GAXE(GLONDIE)(1..max(GOPTCANA,20))    : # Axes (DIE)
+Global Integer GOBLIG(1..max(GOPTCANA,20))           : # Obligatoire (O/N)
+Global Integer GTYPLED(1..10)                        : # Types référentiels
+
+Local Char ACC(GLONGAC), COA(GLONCOA), LED(GLONLED), DEVLED(GLONCUR)
+
+Local Decimal EXERCICE, PERIODE
+
+Local Mask ADRFACREG [AFR]
+For MA=0 To NBMASK
+ Gosub SETMASK From =WINPROG
+Next MA
+
+Raz [F:PYH2]
+Call PARAM("","PRCAMTCNV",[L]CHPIMP) From ADOVAL
+[L]PRCCNV=val([L]CHPIMP)
+Call LECTURE("AUS",GUSER,"") From CONTOBJ
+Local Char LLEVPAZ(3)
+# Issue X3-264817
+#Call PARAMUTIL("NIVBONPAYE",LLEVPAZ,"","") From SUBAUS
+# Read input file to determine FCY.
+# Use [YMP] abbr. to not interfere with [IMP], used by the import process.
+# FICTMP contains a valid file name (has been tested in $CONTROLE @ TRTIMPOBJ)
+Local Char    FCY(GLONFCY)
+Local Char    SEPFLD(1)
+Local Integer LINE, FIELDNO
+# Find field separator for template, plus line and field no. where FCY is.
+If !func IMPEXPLIB.FIND_FLD_IN_TEMPLATE("PAY", "FCY", LINE, FIELDNO, SEPFLD)
+  [L]FCY = "": [L]SEPFLD = ";"  # If not found.
+Else
+  Openi FICTMP Using [YMP]
+  Iomode adxifs [L]SEPFLD Using [YMP]  # Set field separator per template's setup
+  Iomode adxium GASCII    Using [YMP]  # Set file type to ASCII
+  INPUT_LINE = 0
+  While INPUT_LINE <> LINE
+    Rdseq VALIMP Using [YMP]
+    INPUT_LINE +=1
+  Wend
+  Openi Using [YMP]
+  [L]FCY = num$(evalue(VALIMP(FIELDNO)))
+Endif
+Call PARAMUTIL("NIVBONPAYE", LLEVPAZ, "", [L]FCY) From SUBAUS
+# End issue X3-264817
+[L]USRPAZ=val(LLEVPAZ)
+[L]MAXPAZ=len(mess(0,510,1))
+X1 = dim([M:PAY4]PAYNUM)
+
+# Bader: 2017-06-28 X3-26998 begin (same behavior as in SUBPAY3.CRELIG)
+Local Decimal MT3, MT4, MT5
+If clalev([F:TCU2])=0 : Local File TABCUR      [TCU2]: Endif
+Local Decimal TOTAMTBANFRC1
+Local Decimal TOTAMTBANFRC
+# Bader: 2017-06-28 X3-26998 end
+# Bader: 2017-10-09 X3-56107 begin (take over analytical dimensions)
+Local Char    DEPMOD(10)
+# Bader: 2017-10-09 X3-56107 end
+# Bader: 2018-07-19 X3-99650 begin (Consolidate payment import code)
+Local Integer LIGANA
+Local Integer AXE, STAT
+Local Date    DAT
+# Bader: 2018-07-19 X3-99650 end
+Return
+
+###################################################################################
+$CHECK_CSHVATRGM
+  # Issue X3-262859 - 2022-02-02 by JOPAU : Calculate field CSHVATRGM
+  Gosub INI_COM_IMP From SUBPAY3
+  # End issue X3-262859
+Return
+###################################################################################
+
+$RAZCRE
+Raz [M:PAY0]
+Raz [M:PAY1]
+Raz [M:PAY2]
+Raz [M:PAY3]
+Raz [M:VTL]
+Raz [M:VT2]
+[M]MAXPAZ = [L]MAXPAZ
+[M]USRPAZ = [L]USRPAZ
+[M]PRCAMTCNV = [L]PRCCNV
+OKPYH = 2
+Return
+
+###################################################################################
+$SAIMSK
+Case IMPFIC
+ When "PYH"
+  nolign = 1
+  [M:PAY0] = [F:PYH]
+  [M:PAY1] = [F:PYH]
+  [M:PAY2] = [F:PYH]
+  [M:AFR]  = [F:PYH]
+
+  #issue X3-218029
+  [L]PAYAPPFLG = 0
+  Call LEC_FCY([F:PYH]FCY) From CPTLEC
+  Call LEC_TPY_LEG([F:FCY]LEG,[F:PYH]PAYTYP) From CPTLEC
+
+  Case [F:PYH]PAYAPPFLG
+    When 0
+      [L]PAYAPPDAT = ""
+      [L]PAYAPPUSR = ""
+      If [F:TPY]PAYAPP<>2
+        #NO: default assign to YES
+        [L]PAYAPPFLG = 2
+      Else
+        #YES: default assign to NO
+        If [F:PYH]SNS=2   #check if PYH is revenue
+          [L]PAYAPPFLG = 2
+        Else
+          [L]PAYAPPFLG = 1
+        Endif
+      Endif
+    When 1
+      If [F:TPY]PAYAPP<>2
+        #NO: trace message and rollback
+        If find([F:PYH]PAYTYP,[L]APPTPY)=0 and [L]APPTPYNB <= [L]MAX_TPY # Issue X3-240077 by MRDAB
+          Call ECR_TRACE(func AFNC.MES1(mess(355,117,1),[F:PYH]PAYTYP),1) From GESECRAN
+          [L]APPTPY([L]APPTPYNB) = [F:PYH]PAYTYP
+          [L]APPTPYNB+=1
+        Endif
+        [L]PAYAPPFLG = 3
+      Else
+        #YES: assing to NO
+        If [F:PYH]SNS=2   #check if PYH is revenue
+          [L]PAYAPPFLG = 2
+        Else
+          [L]PAYAPPFLG = 1
+        Endif
+        [L]PAYAPPDAT = ""
+        [L]PAYAPPUSR = ""
+      Endif
+    When 2
+      If [F:TPY]PAYAPP<>2
+        #NO: assing to YES
+        [L]PAYAPPFLG = 2
+        [L]PAYAPPDAT = ""
+        [L]PAYAPPUSR = ""
+      Else
+        #YES: assing to YES
+        [L]PAYAPPFLG = 2
+
+        If format$("YYYYMMDD", [F:PYH]PAYAPPDAT)=""
+          [L]PAYAPPDAT = datetime$
+        Else
+          [L]PAYAPPDAT = [F:PYH]PAYAPPDAT
+        Endif
+
+        If [F:PYH]PAYAPPUSR=""
+          [L]PAYAPPUSR = GUSER
+        Else
+          [L]PAYAPPUSR = [F:PYH]PAYAPPUSR
+        Endif
+      Endif
+   Endcase
+  #issue X3-218029 end
+
+  [M:PAY0]NUM=""
+  If dim([M:PAY1]NBLIG)>0
+   [M:PAY1]NBLIG=0
+  Elsif dim([M:PAY2]NBLIG)>0
+   [M:PAY2]NBLIG=0
+  Elsif dim([M:PAY3]NBLIG)>0
+   [M:PAY3]NBLIG=0
+  Endif
+
+  Call GETSOC([M]FCY) From DEVSUB
+  Raz [M]LSTLED, [M]LSTACC, [M]LSTAXE
+  Call SETPLAN(GSOCIETE,GNBPLAN,GPLAN,GTYPLED,GNBAXE,GAXE,GOBLIG) From CPTDIV
+  [M]COA = GPLAN(1)
+  For AXE=1 To GNBAXE
+   [M]DIE(AXE-1)   = GAXE(AXE)
+   [M:VT2]TBDIE(AXE-1) = GAXE(AXE)
+  Next
+  GNBTYPLED = GNBPLAN
+  [M]CPY=GSOCIETE
+  If dim(GSDDMGT)>0
+   #X3-112211
+   #Call PARAM([M]CPY,"SDDMGT",OPT) From ADOVAL
+   If func AFNC.ACTIV("SDD")
+     Call PARAM([M]CPY,"SDDMGT",OPT) From ADOVAL
+     GSDDMGT=val(OPT)
+   Endif
+   #ENDIF X3-112211
+  Endif
+
+  GFLAG = [F:PYH]PAYTYP
+
+ When "PYD"
+
+  Gosub LEC_PARAM
+
+  If dim([M:PAY1]NBLIG)>0
+   [M:PAY1]NBLIG += 1
+   nolign = [M:PAY1]NBLIG
+   [M:PAY1] = [F:PYD]
+   NOL = [M:PAY1]NBLIG-1
+  Elsif dim([M:PAY2]NBLIG)>0
+   [M:PAY2]NBLIG += 1
+   nolign = [M:PAY2]NBLIG
+   [M:PAY2] = [F:PYD]
+   NOL = [M:PAY2]NBLIG-1
+  Elsif dim([M:PAY3]NBLIG)>0
+   [M:PAY3]NBLIG += 1
+   nolign = [M:PAY3]NBLIG
+   [M:PAY3] = [F:PYD]
+   NOL = [M:PAY3]NBLIG-1
+  Endif
+  [M:PAY0]NUM=""
+
+  [M]ACC = [F:PYH]ACC : # Car le transclasse [M]=[F:PYD] écrase le compte d'en-tête....
+
+  For NLED=1 To GNBTYPLED
+   Assign "[M]ACC"+num$(NLED)+"("+num$(nolign-1)+")" With [F:PYD]ACC(GTYPLED(NLED)-1)
+  Next
+
+  If [M]DUDNUM(NOL)=0 | [M]DUDLIG(NOL)=0
+   [M]DUDNUM(NOL)=0 : [M]DUDLIG(NOL)=0
+  Endif
+  If [M]DUDNUM(NOL)<>0 & [M]DUDLIG(NOL)<>0 & [M]VCRTYP(NOL)="" & [M]VCRNUM(NOL)=""
+   Read [DUD]DUD1 = [M]DUDNUM(NOL);[M]DUDLIG(NOL)
+   If fstat=0
+    [M]VCRTYP(NOL)=[F:DUD]TYP : [M]VCRNUM(NOL)=[F:DUD]NUM
+    [M]BPRINV(NOL)    = [F:DUD]BPR
+    [M]BPRSACINV(NOL) = [F:DUD]SAC
+   Endif
+  Elsif [M]DUDNUM(NOL)=0 & [M]DUDLIG(NOL)=0 &
+&       (!find([M]VCRTYP(NOL),"",[L]PROTYP) | [M]VCRNUM(NOL)<>"" | sum(GIMP(1..4))<>"")
+   XCRITERE=''
+   If [M]VCRTYP(NOL)<>"" & [M]VCRTYP(NOL)<>[L]PROTYP
+    XCRITERE+=" & TYP='"
+    Case [M]VCRTYP(NOL)
+     When [M]BPCTYP : [L]XCRITERE+="*SO"
+     When [M]BPSTYP : [L]XCRITERE+="*PO"
+     When Default   : [L]XCRITERE+=[M]VCRTYP(NOL)
+    Endcase
+    XCRITERE+="'"
+   Endif
+   If [M]VCRNUM(NOL)<>""
+    XCRITERE+=" & NUM='"+[M]VCRNUM(NOL)+"'"
+   Endif
+   If GIMP(1)<>""
+    Read [GAC]GAC1=[M]COA;GIMP(1)
+    If fstat=0
+     XCRITERE+=" & SAC='"+[F:GAC]ACCSHO+"'"
+    Endif
+   Endif
+   If GIMP(2)<>""
+    XCRITERE+=" & BPR='"+GIMP(2)+"'"
+   Endif
+   If GIMP(3)<>""
+    Local Integer ER
+    Call SETDATE(XDAT,GIMP(3),[M:AOE1]OPTDAT,ER) From SUBIMPOBJ
+    If [L]XDAT<>[0/0/0] : XCRITERE+=" & DUDDAT=["+format$(GFMD,[L]XDAT)+"]"
+    Else                : XCRITERE+=" & DUDDAT=[0/0/0]"
+    Endif
+   Endif
+   If GIMP(4)<>""
+    XCRITERE+=" & FCY='"+GIMP(4)+"'"
+   Endif
+   XCRITERE = right$(XCRITERE,3)
+   I=0
+   For [DUD]DUD0 Where evalue(XCRITERE)
+# X3-122305 2019-02-13 Bader begin
+    If [F:DUD]AMTCUR - [F:DUD]PAYCUR - [F:DUD]TMPCUR <> 0   # X3-122305 - ignore balanced OIs, e.g. first line of a "Statement" (REL/SOI)
+# X3-122305 2019-02-13 Bader end
+        I+=1
+        If I=1
+         [M]DUDNUM(NOL)=[F:DUD]ACCNUM : [M]DUDLIG(NOL)=[F:DUD]DUDLIG
+         [M]BPRINV(NOL)    = [F:DUD]BPR
+         [M]BPRSACINV(NOL) = [F:DUD]SAC
+        Else
+         Raz [M]DUDNUM(NOL), [M]DUDLIG(NOL) : Break
+        Endif
+# X3-122305 2019-02-13 Bader begin
+    Endif
+# X3-122305 2019-02-13 Bader end
+   Next : # [DUD]
+  Endif
+
+ When "PYA"
+
+  If dim([M:PAY1]NBLIG)>0
+   nolign = [M:PAY1]NBLIG
+  Elsif dim([M:PAY2]NBLIG)>0
+   nolign = [M:PAY2]NBLIG
+  Elsif dim([M:PAY3]NBLIG)>0
+   nolign = [M:PAY3]NBLIG
+  Endif
+
+  If [M:VT2]PTVENT+1>=dim([M:VT2]TBAMT)
+   # Trop ventilations analytiques
+   Call ECR_TRACE("PAYMENTD("+num$(nolign)+")"-mess(79,117,1),1) From GESECRAN
+   OKPYH=1 : Return
+  Endif
+
+  [M:VT2]PTVENT += 1
+
+  #CHECK IGNORE_BEGIN
+  If dim([M:PAY1]NBLIG)>0
+   If [M:PAY1]PTV(nolign-1)=0 :  [M:PAY1]PTV(nolign-1) = [M:VT2]PTVENT :   Endif
+   [M:PAY1]PTF(nolign-1) = [M:VT2]PTVENT
+   [M:PAY1]DSP(nolign-1) = "$"
+  Elsif dim([M:PAY2]NBLIG)>0
+   If [M:PAY2]PTV(nolign-1)=0 :  [M:PAY2]PTV(nolign-1) = [M:VT2]PTVENT :   Endif
+   [M:PAY2]PTF(nolign-1) = [M:VT2]PTVENT
+   [M:PAY2]DSP(nolign-1) = "$"
+  Elsif dim([M:PAY3]NBLIG)>0
+   If [M:PAY3]PTV(nolign-1)=0 :  [M:PAY3]PTV(nolign-1) = [M:VT2]PTVENT :   Endif
+   [M:PAY3]PTF(nolign-1) = [M:VT2]PTVENT
+   [M:PAY3]DSP(nolign-1) = "$"
+  Endif
+  #CHECK IGNORE_END
+
+  ## Transfert des infos
+  For AXE=1 To GNBAXE
+   INDAXE = find(GAXE(AXE),[F:PYA]DIE(0..dim([F:PYA]DIE)-1))
+   If INDAXE
+    Assign "[M:VT2]TBCCE"+num$(AXE)+"("+num$([M:VT2]PTVENT)+")" With [F:PYA]CCE(INDAXE-1)
+   Endif
+  Next AXE
+  [M:VT2]TBAMT([M:VT2]PTVENT) = [F:PYA]AMTANA
+  [M:VT2]TBQTY([M:VT2]PTVENT) = [F:PYA]QTYANA
+
+Endcase
+Return
+
+$LEC_PARAM
+If GMODU(5)=2
+ If clalev([F:SOH])=0 : Local File SORDER [SOH] : Endif
+ Call PARAM([F:DUD]CPY,"BPCORDTYP",[L]BPCTYP) From ADOVAL : # CCL
+Endif
+If GMODU(6)=2
+ If clalev([F:POH])=0 : Local File PORDER [POH] : Endif
+ Call PARAM([F:DUD]CPY,"BPSORDTYP",[L]BPSTYP) From ADOVAL : # CCF
+Endif
+If dim([M:PAY3]RITAMT)>0 | dim([M:PAY1]RITAMT)>0 | dim([M:PAY2]RITAMT)>0
+ If func AFNC.ACTIV("KIT")   # Issue X3-107197
+  Call PARAM([F:DUD]CPY,"BPSPROTYP",[L]PROTYP) From ADOVAL : # PRO
+ Endif   # Issue X3-107197
+ Call SETCUR(1,[F:DUD]CPY,[L]RTZCUR) From CPTDIV
+ [M]PROTYP = [L]PROTYP
+ [M]RTZCUR = [L]RTZCUR
+Endif
+[M]BPCTYP = [L]BPCTYP
+[M]BPSTYP = [L]BPSTYP
+Return
+
+###################################################################################
+$VALID
+If dim([M:PAY1]NBLIG)>0
+ If [M:PAY1]NBLIG=0 : Return : Endif
+Elsif dim([M:PAY2]NBLIG)>0
+ If [M:PAY2]NBLIG=0 : Return : Endif
+Elsif dim([M:PAY3]NBLIG)>0
+ If [M:PAY3]NBLIG=0 : Return : Endif
+Endif
+
+If OKPYH = 2
+ Gosub DEFAULT_PAY
+ Gosub CONTROLE
+ If OKPYH = 2
+  If GUSRFCY(1)<>"\"
+   I= find([M]FCY,GUSRFCY(1..GNBAUZ))
+  Else
+   I=1
+  Endif
+  If I=0 | !(instr(1,GUSRAUZ(I),"C"))
+   # Vous n'avez pas les droits pour ce site
+   Call ECR_TRACE([M]FCY-":"-mess(2,104,1),1) From GESECRAN
+   OKPYH = 1
+  Endif
+ Endif
+Endif
+
+If OKPYH=2
+ Call DEBTRANS From GLOCK
+ #issue X3-218029
+ If [L]PAYAPPFLG<>3
+   Gosub TR1
+   If GOK>0
+######################################################################################################
+##AUREN.INI Mostramos número creación del pago para que aparezca en el web service
+    Call MESSAGE('Creación de '+[F:PYH]NUM)From GESECRAN
+    Call XARG_PAYCPT([F:PYH]NUM,[F:PYH]ACCDAT)
+    #Call MESSAGE('Contabilización del cobro: '+[F:PYH]NUM)From GESECRAN
+##AUREN.FIN
+    Call TRACE(0,[F:PYH]NUM) From SUBIMPOBJ
+    NBCRE += 1
+   Else
+    OKPYH = 1
+   Endif
+ Endif
+ #issue X3-218029 end
+Endif
+
+If OKPYH<>2
+ Call ECR_TRACE(mess(18,114,1),0) From GESECRAN : # Transation abandonnée
+ GOK = 0
+Endif
+GMESSAGE=""
+Return
+
+
+$TR1
+GOK=1
+Local Integer TRANSAC : TRANSAC = 0
+If adxlog<>1
+ Trbegin [PYH], [PYD], [PYA], [PYL]
+ TRANSAC = 1
+Endif
+ Raz [F:PYH]
+ [F:PYH] = [M:PAY0]
+ [F:PYH] = [M:PAY1]
+ [F:PYH] = [M:PAY2]
+ [F:PYH] = [M:AFR]
+
+ #issue X3-218029
+ [F:PYH]PAYAPPFLG = [L]PAYAPPFLG
+ [F:PYH]PAYAPPDAT = [L]PAYAPPDAT
+ [F:PYH]PAYAPPUSR = [L]PAYAPPUSR
+ #issue X3-218029 end
+
+ Gosub CHECK_CSHVATRGM : # Issue x3-262859 - 2022-02-02 by JOPAU
+
+ If [F:PYH]BPR<>""
+  Call LEC_BPR([F:PYH]BPR) From CPTLEC
+  If fstat<2
+   [F:PYH]BPANAM=[F:BPR]BPRNAM
+  Endif
+ Elsif [F:PYH]ACC<>""
+  Call LEC_GAC([F:PYH]ACC,GPLAN(1)) From CPTLEC
+  If fstat<=2
+   Call LECTEXTRA([F:PYH]BPANAM,"GACCOUNT","DESTRA",GPLAN(1),[F:PYH]ACC) From ATEXTRA
+  Endif
+ Endif
+ [F:PYH]COA = GPLAN(1)
+ COMPTREG = ""
+ Call LECTCA(3,OKTCA) From SUBTCA
+ If OKTCA
+  If [F:PYH]SNS=1
+   COMPTREG = [F:TCA]CODNUM(0) : # Dépenses
+  Else
+   COMPTREG = [F:TCA]CODNUM(1) : # Recettes
+  Endif
+  COMPTLOT = [F:TCA]CODNUM(6) : # Lots de saisie
+ Endif
+ If COMPTREG="" : COMPTREG = "PY1" : Endif
+ If func PORLEGLIB.SEQNUMCORRECT([F:PYH]FCY, COMPTREG) = 0
+   Call ECR_TRACE(COMPTREG+": "+GMESSAGE,1) From GESECRAN
+   GOK = 0 : Goto AB_TR1
+ Endif
+ Call NUMERO(COMPTREG,[F:PYH]FCY,[F:PYH]ACCDAT,[F:PYH]PAYTYP,[F:PYH]NUM,I) From SUBANM
+ If I
+  # Problème lors de la récupération du compteur
+  Gosub MESSAGE From SUBANM
+  Call ECR_TRACE(mess(60,199,1)-"("+COMPTREG+") : "+MESSA,1) From GESECRAN
+  GOK=0 : Goto AB_TR1
+ Endif
+ Raz [F:PYH]FRMFLG, [F:PYH]FRMNUM, [F:PYH]FRMLIN, [F:PYH]FRMFCY, [F:PYH]FRMUSR, [F:PYH]FRMDAT
+ Raz [F:PYH]TFBFIL, [F:PYH]TFBDAT
+ Raz [F:PYH]PABAMTPRT, [F:PYH]PABFLG, [F:PYH]PABREN
+ Raz [F:PYH]STAFLG, [F:PYH]AMTNYTBIL, [F:PYH]RENNOTPAY, [F:PYH]EDTNUM
+ If dim([F:PYH]CREDAT)>0 : [F:PYH]CREDAT = date$ : Endif
+ If dim([F:PYH]CREUSR)>0 : [F:PYH]CREUSR = GUSER : Endif
+ If dim([F:PYH]UPDDAT)>0 : Raz [F:PYH]UPDDAT : Endif
+ If dim([F:PYH]UPDUSR)>0 : Raz [F:PYH]UPDUSR : Endif
+ If dim([F:PYH]EXPNUM)>0 : [F:PYH]EXPNUM=[C]EXPORT : Endif
+ [F:PYH]STA=1 : [F:PYH]STAFLG(0)=2 : # Etat
+ [F:PYH]PST=1 : # Non Comptabilisé
+ Call CLIFOU([F:PYH]BPR,[F:PYH]COA,[F:PYH]ACC,[F:PYH]SNS,[F:PYH]BPRTYP) From PAYDIV
+
+ If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:PYH]SNS=2 & [F:TPY]EPACDTTRF=2 & [F:PYH]UMRNUM<>""
+  #update HISTOMDT
+  Call UPDMDTPYH([F:PYH]CPY,[F:PYH]UMRNUM,[F:PYH]DUDDAT,[F:PYH]NUM,[F:PYH]UMRSEQ,[F:PYH]AMTCUR,"","") From PAYSDDLIB
+  If GOK<1 : Goto AB_TR1: Endif
+  #update HISTOAMD
+  GOK = func PAYSDDLIB.UPDHAMNUM([F:PYH]CPY,[F:PYH]UMRNUM,"",[F:PYH]NUM)
+  If GOK<1 :Goto AB_TR1 : Endif
+ Endif
+
+ Call GETPERSOC([F:PYH]CPY,GTYPGEN,[F:PYH]ACCDAT,EXERCICE,PERIODE) From CPTSUB
+ [F:PYH]FIY = EXERCICE
+ [F:PYH]PER = PERIODE
+
+ If COMPTLOT<>""
+  I = find([F:PYH]PAYTYP-[F:PYH]CPY,LOTID(0..NBLOT-1))-1
+  If I<0 | LOTX(I)>=X1 : # Nouveau code lot
+   Call NUMERO(COMPTLOT,[F:PYH]FCY,datesyst,GUSER,[F:PYH]PAYLOT,K) From SUBANM
+   If K
+    # Problème lors de la récupération du compteur
+    Gosub MESSAGE From SUBANM
+    Call ECR_TRACE(mess(60,199,1)-"("+COMPTLOT+") : "+MESSA,1) From GESECRAN
+    GOK=0 : Goto AB_TR1
+   Endif
+   [F:PYH]PAYLOTLIG=1
+   Raz [F:PYL]
+   [F:PYL]COD   =[F:PYH]PAYLOT
+   [F:PYL]DES   = mess(70,71,1) : # import
+   [F:PYL]CPY   =[F:PYH]CPY
+   [F:PYL]FCY   =[F:PYH]FCY
+   [F:PYL]PAYTYP=[F:PYH]PAYTYP
+   If dim([F:PYL]CREDAT)>0 : [F:PYL]CREDAT=date$ : Endif
+   If dim([F:PYL]CREUSR)>0 : [F:PYL]CREUSR=GUSER : Endif
+   K=0
+  Else
+   [F:PYH]PAYLOT=LOTCOD(I) : [F:PYH]PAYLOTLIG=LOTX(I)+1
+   Readlock [PYL]PYL0 = [F:PYH]PAYLOT
+   If fstat=1
+    GOK=-1 : GLOCK="$PAYLOT"-[F:PYH]PAYLOT : Goto ROLL_TR1
+   Elsif fstat
+    GOK=0 : Call RSTA("PYL",[F:PYH]PAYLOT) From GLOCK : Goto AB_TR1
+   Endif
+   K=1
+  Endif
+  [F:PYL]NBRPAY+=1
+  If [F:TPY]SNS<3 & [F:PYH]SNS=[F:TPY]SNS : J=1
+  Elsif [F:TPY]SNS<3 & [F:PYH]SNS<>[F:TPY]SNS : J=-1
+  Elsif [F:PYH]SNS=2 : J=1
+  Else J=-1
+  Endif
+  # Montant du lot en devise société
+  If [M]CURCPY=[F:PYH]CUR
+   [L]MT=[F:PYH]AMTCUR
+  Else
+   Call CONVERT([F:PYH]CUR,[M]CURCPY,[M]CURCPY,[F:TPY]RATTYP,
+&               [F:PYH]ACCDAT,[F:PYH]AMTCUR,[L]MT,STATX) From TRTDEV
+   If STATX : # Pas de cours de devises CUR -> CURCPY (ACCDAT)
+    Call ERREURT(mess(16,114,1)-[F:PYH]CUR-"->"-[M]CURCPY-"("+format$("D:"+GFMDAT,[F:PYH]ACCDAT)-")",STATX) From GESECRAN
+    GOK=0 : Goto AB_TR1
+   Endif
+  Endif
+  [F:PYL]TOTLOC+=J*[L]MT
+  If K : Rewrite [PYL]
+  Else : Write [PYL]
+  Endif
+  If fstat
+   GOK=0 : Call FSTA("PYL") From GLOCK : Goto AB_TR1
+  Endif
+ Else Raz [F:PYH]PAYLOT, [F:PYH]PAYLOTLIG
+ Endif
+
+# Bader: 2018-07-19 X3-99650 begin (Consolidate payment import code)
+# Writing of [PYH] moved before DEVIN and CRELIG to be able to call them from SUBPAY3
+ If GOK>0
+  Write [PYH]
+  If fstat
+   GOK=0 : Call RSTA("PYH",[F:PYH]NUM) From GLOCK : Goto AB_TR1
+  Endif
+ Endif
+# Bader: 2018-07-19 X3-99650 end
+ Gosub DEVIN From SUBPAY3
+ Gosub INI_COM From SUBPAY3 : #Issue X3-159323 – 2019-09-09 by MADOR - SVAT - Changes related to early discount function
+ Gosub CRELIG From SUBPAY3
+
+# Bader: 2018-07-19 X3-99650 begin (Consolidate payment import code)
+# If GOK=0    : Goto AB_TR1
+ If GOK=0
+    Call ECR_TRACE(GMESSAGE,1) From GESECRAN
+    Goto AB_TR1
+# Bader: 2018-07-19 X3-99650 end
+ Elsif GOK<0 : Goto ROLL_TR1
+ Endif
+
+If TRANSAC
+ Commit
+Endif
+
+If [F:PYH]PAYLOT<>""
+ I = find([F:PYH]PAYTYP-[F:PYH]CPY,[L]LOTID(0..NBLOT-1))-1
+ # Dans le cas de dépassement, c'est à dire import d'une société ou d'une transaction règlement inexistant,
+ # un nouveau lot sera créé, on ne récupèrera pas le numéro de lot déjà attribué pour le couple société/type de tranacation de règlements
+ If I<0 & NBLOT>=dim(LOTID)
+  Return
+ Endif
+ If I<0
+  I=NBLOT : NBLOT+=1
+  [L]LOTID(I)=[F:PYH]PAYTYP-[F:PYH]CPY
+ Endif
+ [L]LOTCOD(I)=[F:PYH]PAYLOT
+ [L]LOTX(I)=[F:PYH]PAYLOTLIG
+Endif
+Return
+
+
+$AB_TR1
+If TRANSAC = 1
+ Rollback
+Endif
+Return
+
+$ROLL_TR1
+If TRANSAC = 1
+ Rollback
+Endif
+Call ROLL From GLOCK
+If GROLL : Return
+Else Goto TR1
+Endif
+
+#####################################
+
+$DEFAULT_PAY
+
+# Site
+Call INIFCY([M]FCY,[M]CPY) From CPTSUB
+
+# Société
+If [M]CPY=""
+ Call LECTURE("FCY",[M]FCY,"") From CONTOBJ
+ If !fstat
+  [M]CPY = [F:FCY]LEGCPY
+ Endif
+Endif
+If [M]CPY<>""
+ I = find([M]CPY,GSOC(1..GNBSOC))
+ If I : [M]CURCPY=GDEVSOC(I) : Endif
+Endif
+
+# Transaction de règlement
+Call LECTURE("CPY",[M]CPY,"") From CONTOBJ
+Call LEC_TPY_LEG([F:CPY]LEG,[F:PYH]PAYTYP) From CPTLEC
+
+# Sens de règlement
+If [M]SNS=0 & find([F:TPY]SNS,1,2)
+ [M]SNS=[F:TPY]SNS
+Endif
+
+# Mode de règlement
+If [M]PAM="" & [F:TPY]PAM(0)<>""
+ [M]PAM=[F:TPY]PAM(0)
+Endif
+
+# Date de règlement, Date d'origine, Date de création, Date d'échéance, Date de valeur
+If [M]ACCDAT=[0/0/0]
+ [M]ACCDAT=datesyst
+Endif
+If [M]ORIDAT=[0/0/0] & ([F:TPY]DACORIDAT=1 | !find("ORIDAT",[M:AOE2]FLD(0..[M:AOE2]NBRLIG-1)))
+ [M]ORIDAT=date$
+Endif
+If [M]BILDAT=[0/0/0] & ([F:TPY]DACBILDAT=1 | !find("BILDAT",[M:AOE2]FLD(0..[M:AOE2]NBRLIG-1)))
+ [M]BILDAT=date$
+Endif
+If [M]DUDDAT=[0/0/0] & ([F:TPY]DACDUDDAT=1 | !find("DUDDAT",[M:AOE2]FLD(0..[M:AOE2]NBRLIG-1)))
+ [M]DUDDAT=[M]ACCDAT
+Endif
+If [M]VALDAT=[0/0/0] & ([F:TPY]DACVALDAT=1 | !find("VALDAT",[M:AOE2]FLD(0..[M:AOE2]NBRLIG-1)))
+ [M]VALDAT=[M]DUDDAT
+Endif
+
+# Code plan
+If [M]COA=""
+ [M]COA = GPLAN(1)
+ Read [COA]COA0=[M]COA
+Endif
+
+# Compte
+If [M]ACC="" & [M]BPRSAC<>""
+ Read [GAC]GAC1=[M]COA;[M]BPRSAC
+ If !fstat : [M]ACC=[F:GAC]ACC : Endif
+Elsif [M]BPRSAC="" & [M]ACC<>""
+ Call LEC_GAC([M]ACC,[M]COA) From CPTLEC
+ If !fstat & [F:GAC]SAC=2 : [M]BPRSAC=[F:GAC]ACCSHO : Endif
+Endif
+
+# Tiers
+Local Char CODCPT(GLONCAC)
+If [M]ACC="" & [M]BPRSAC="" & [M]BPR<>""
+ Call LECTURE("BPR",[M]BPR,"") From CONTOBJ
+ If fstat<=2
+  If [M]SNS=1 : PRIO="FC" : Else PRIO="CF" : Endif
+  For I=1 To 3
+   Case mid$(PRIO,I,1)
+    When "C" : # Client
+     If [F:BPR]BPCFLG=2
+      Call LECTURE("BPC",[M]BPR,"") From CONTOBJ
+      Call INIT_COMPTE([M]BPR,GSOCIETE,"C",CODCPT) From CPTSUB
+      If [L]CODCPT<>"" & [F:BPC]BPCSTA=2
+       Call LEC_CAC(2,[L]CODCPT,[M]COA) From CPTLEC
+       Call LEC_GAC([F:CAC]ACC(0),[M]COA) From CPTLEC
+       If [F:GAC]AUZBPR(0)=2
+        [M]BPRSAC=[F:GAC]ACCSHO : [M]ACC=[F:GAC]ACC : Break
+       Endif
+      Endif
+     Endif
+    When "F" : # Fournisseur
+     If [F:BPR]BPSFLG=2
+      Call LECTURE("BPS",[M]BPR,"") From CONTOBJ
+      Call INIT_COMPTE([M]BPR,GSOCIETE,"F",CODCPT) From CPTSUB
+      If [L]CODCPT<>"" & [F:BPS]ENAFLG=2
+       Call LEC_CAC(3,[L]CODCPT,[M]COA) From CPTLEC
+       Call LEC_GAC([F:CAC]ACC(0),[M]COA) From CPTLEC
+       If [F:GAC]AUZBPR(1)=2
+        [M]BPRSAC=[F:GAC]ACCSHO : [M]ACC=[F:GAC]ACC : Break
+       Endif
+      Endif
+     Endif
+    When Default :
+     If [F:BPR]ACCCOD<>""
+      Call LEC_CAC(17,[F:BPR]ACCCOD,[M]COA) From CPTLEC
+      Call LEC_GAC([F:CAC]ACC(0),[M]COA) From CPTLEC
+      If [F:GAC]AUZBPR(5)=2
+       [M]BPRSAC=[F:GAC]ACCSHO : [M]ACC=[F:GAC]ACC : Break
+      Endif
+     Endif
+   Endcase
+  Next I
+ Endif
+Endif
+
+# Sens de règlement ... suite
+If [M]SNS=0
+ If [M]BPR<>""
+  Call LECTURE("BPR",[M]BPR,"") From CONTOBJ
+  If fstat=0 :
+   If [F:BPR]BPCFLG=2 & [F:BPR]BPSFLG<>2    : [M]SNS = 2 : # Recette
+   Elsif [F:BPR]BPCFLG<>2 & [F:BPR]BPSFLG=2 : [M]SNS = 1 : # Depense
+   Endif
+  Endif
+ Endif
+ If [M]SNS=0 & [M]ACC<>""
+  Call LECTURE("GAC",[M]ACC,[M]COA) From CONTOBJ
+  If fstat=0
+   If [F:GAC]UPDBLC=2                             : [M]SNS=2
+   Elsif [F:GAC]UPDBLC=3                          : [M]SNS=1
+   Elsif [F:GAC]AUZBPR(0)=2 & [F:GAC]AUZBPR(1)<>2 : [M]SNS=2
+   Elsif [F:GAC]AUZBPR(0)<>2 & [F:GAC]AUZBPR(1)=2 : [M]SNS=1
+   Endif
+  Endif
+ Endif
+ If [M]SNS=0 : [M]SNS=2 : Endif
+Endif
+
+# Banque
+If [M]BAN="" & [F:TPY]DACBAN=1 : # Banque obligatoire
+ Case [F:TPY]BANCSH
+  When 2 : # Caisse
+   [M]BAN=GCSHDEF : Gosub VERF_BAN
+  When 1 : # Banque
+   Call CLIFOU([M]BPR,[M]COA,[M]ACC,[M]SNS,[L]BPRTYP) From PAYDIV
+   If [M]BPR<>""
+    If [L]BPRTYP=1
+     Call LECTURE("BPC",[M]BPR,"") From CONTOBJ
+     [M]BAN=[F:BPC]PAYBAN
+    Else
+     Call LECTURE("BPS",[M]BPR,"") From CONTOBJ
+     [M]BAN=[F:BPS]PAYBAN
+    Endif
+    Gosub VERF_BAN
+   Endif
+   If [M]BAN=""
+    [M]BAN=GBANDEF : Gosub VERF_BAN
+    If [M]BAN=""
+     Call LECTURE("FCY",[M]FCY,"") From CONTOBJ
+     [M]BAN=[F:FCY]PAYBAN : Gosub VERF_BAN
+    Endif
+   Endif
+ Endcase
+Endif
+[M]CURBAN=""
+If [M]BAN<>""
+ Call LECTURE("BAN",[M]BAN,"") From CONTOBJ
+ [M]CURBAN = [F:BAN]CUR
+Endif
+
+# Devise
+If [M]CUR=""
+ If [M]BPR<>"" & [M]SNS=2 : # Recette
+  Call LECTURE("BPC",[M]BPR,"") From CONTOBJ
+  [M]CUR = [F:BPC]CUR
+ Elsif [M]BPR="" & [M]ACC<>""
+  Call LECTURE("GAC",[M]ACC,"") From CONTOBJ
+  [M]CUR = [F:GAC]CUR
+ Endif
+ If [M]CUR="" & [M]BAN<>""
+  Call LECTURE("BAN",[M]BAN,"") From CONTOBJ
+  [M]CUR = [F:BAN]CUR
+ Endif
+ If [M]CUR="" : [M]CUR = [M]CURCPY : Endif
+Endif
+
+# Type de remise
+If [F:TPY]CODEDT<>""
+ Call LEC_TED([F:CPY]LEG,[F:TPY]CODEDT) From CPTLEC
+ If !fstat & find([F:TED]TRT,"CHR","CHE") : [M]FRMTYP=1 : Endif
+Endif
+If [M]FRMTYP=0 & find([F:TPY]DACFRMTYP,1,2)
+ [M]FRMTYP=1
+Elsif [M]FRMTYP<1 or [M]FRMTYP>len(mess(0,655,1))
+ [M]FRMTYP=1
+Endif
+
+# Type d'achat
+If [M]PURTYP<1 or [M]PURTYP>len(mess(0,646,1))
+ [M]PURTYP=1
+Endif
+
+# RIB et domiciliations 1 et 2
+Local Char    BPA(GLONBPA)
+If [M]BID="" & ([M]BPR<>"" | [M]ACC<>"") &
+&  (find([F:TPY]DACBID,1,2) | find([F:TPY]DACPAB1,1,2) | find([F:TPY]DACPAB2,1,2))
+ If [M]BPR<>""
+  Call LECTURE("BPR",[M]BPR,"") From CONTOBJ
+  If fstat=0
+   If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]SNS=2 & [F:TPY]EPACDTTRF=2 & [M]UMRNUM<>""
+    Call LEC_MDT([M]CPY,[M]UMRNUM)From CPTLEC
+    Read [BID]BID0 = 1;[M]BPR;[F:MDT]BIDNUM: # RIB du mandat
+   ##YYFIN_71258_US320
+   Else
+    Read [BID]BID0 = 1;[M]BPR;[F:BPR]BIDNUM : # Tiers
+    If fstat>2
+     Read [BID]BID0(2) = 1;[M]BPR
+    Endif
+   Endif
+  Endif
+ Elsif [M]ACC<>""
+  Call LECTURE("GAC",[M]ACC,[M]COA) From CONTOBJ
+  If fstat=0
+   Call BPA([M]COA,[M]ACC,BPA) From SUBGAC
+   Read [BID]BID0 = 5;[L]BPA;[F:GAC]BIDNUM : # Compte
+   If fstat>2
+    Read [BID]BID0(2) = 5;[L]BPA
+   Endif
+  Endif
+ Endif
+ If fstat<2
+  If find([F:TPY]DACBID,1,2)
+   [M]BIDCRY = [F:BID]CRY : [M]BID=[F:BID]BIDNUM
+  Endif
+  If find([F:TPY]DACPAB1,1,2)
+   [M]PAB1 = [F:BID]PAB1
+  Endif
+  If find([F:TPY]DACPAB2,1,2)
+   [M]PAB2 = [F:BID]PAB2
+  Endif
+ Endif
+Endif
+If [M]BIDCRY="" & [M]BID<>"" & [M]BPR<>""
+ Call LECTURE("BPR",[M]BPR,"") From CONTOBJ
+ If fstat=0
+  [M]BIDCRY = [F:BPR]BIDCRY
+ Endif
+Endif
+
+# Carte bancaire
+If [M]CRDNUM<>"" & [M]CRDTYP=""
+ I=0
+ For [ADI]CODE Where NUMTAB=314
+  I+=1
+  If I>1 : [M]CRDTYP="" : Break : Endif
+  [M]CRDTYP=[F:ADI]CODE
+ Next : # [ADI]
+Endif
+
+# Chèque
+If [M]CHQTYP=0 & find([F:TPY]DACCHQTYP,1,2)
+ [M]CHQTYP=1
+Endif
+
+# Zones supplémentaires...
+For I=0 To [F:TPY]NBRSUP-1
+ If [F:TPY]DACSUP(I)=1 & evalue("dim([M]"+[F:TPY]ZONSUP(I)+")")>0
+#& &   evalue("[M]"+[F:TPY]ZONSUP(I))=evalue("[F:PAY2]"+[F:TPY]ZONSUP(I))
+  Read [AMZ]CODE = "PAY2";[F:TPY]ZONSUP(I)
+  If fstat=0
+   If [F:AMZ]CODTYP = "ADI"
+    Read [AMP]CODPAR = 1;"PAY2";[F:TPY]ZONSUP(I);"ADI"
+    If fstat=0
+     Onerrgo CHUT From CONTROLE
+     [L]NUMADI=val([F:AMP]VALPAR)
+     Onerrgo
+     If GERREUR : GERREUR=0 : [L]NUMADI=0 : Endif
+     If [L]NUMADI<>0
+      J=0
+      For [ADI]CODE Where NUMTAB=[L]NUMADI
+       J+=1
+       If J>1 : Assign "[M]"+[F:TPY]ZONSUP(I) With "" : Break : Endif
+       Assign "[M]"+[F:TPY]ZONSUP(I) With [F:ADI]CODE
+      Next : # [ADI]
+     Endif
+    Endif
+   Elsif [F:AMZ]NOLIB<>0
+    Assign "[M]"+[F:TPY]ZONSUP(I) With 1
+   Endif
+  Endif
+ Endif
+Next I
+
+## Les lignes
+
+CDADEF=""
+If [F:TPY]DENDEF<>""
+ Call LEC_CDA_LEG([F:CPY]LEG,[F:TPY]DENDEF) From CPTLEC
+ If fstat=0 & [F:CDA]ACCTYP=1 : # Banque<=>Tiers
+  CDADEF=[F:TPY]DENDEF
+ Endif
+Endif
+
+If dim([M:PAY1]NBLIG)>0
+ SVGNB = [M:PAY1]NBLIG
+Elsif dim([M:PAY2]NBLIG)>0
+ SVGNB = [M:PAY2]NBLIG
+Elsif dim([M:PAY3]NBLIG)>0
+ SVGNB = [M:PAY3]NBLIG
+Endif
+
+# Adaptation V6
+
+If [M]BPAINV = ""
+ Call INIADR([M]BPR,[M]BPAINV) From SUBPAY
+Endif
+
+If [M]BPR<>"" : [M]TYPADR=1
+Elsif [M]ACC<>"" : [M]TYPADR=5
+Endif
+Local Char BPA(GLONBPA)
+Raz [M]BPRNAM, [M]BPAADDLIG
+Case [M]TYPADR
+ When 1 : Read [BPA]BPA0 = 1;[M]BPR;[M]BPAINV
+ When 5 : BPA = format$("K:3X",[M]COA)+[M]ACC
+          Read [BPA]BPA0 = 5;BPA;[M]BPAINV
+Endcase
+If !fstat
+ For I=0 To min(dim([M]BPAADDLIG),dim([F:BPA]BPAADDLIG))-1
+  [M:AFR]BPAADDLIG(I) = [F:BPA]BPAADDLIG(I)
+ Next I
+ [M:AFR]POSCOD = [F:BPA]POSCOD
+ [M:AFR]CTY    = [F:BPA]CTY
+ [M:AFR]CRY    = [F:BPA]CRY
+ [M:AFR]SAT    = [F:BPA]SAT
+ If [F:BPA]CRYNAM<>"" : [M:AFR]CRYNAM = [F:BPA]CRYNAM
+ Else [M:AFR]CRYNAM="" : Call INIPAYS([F:BPA]CRY,[M]CRYNAM) From TRTDIV
+ Endif
+Endif
+
+For NOL=0 To SVGNB-1
+
+ If [M]DENCOD(NOL)=""
+  [M]DENCOD(NOL)=CDADEF
+ Endif
+ If [M]DENCOD(NOL)<>""
+  Call LEC_CDA_LEG([F:CPY]LEG,[M]DENCOD(NOL)) From CPTLEC
+  If fstat<=2
+   If [F:CDA]ACCTYP=1 | [F:CDA]ACCBPR<>"" : # Banque<=>Tiers
+    Raz [M]SACLIN(NOL), [M]BPRLIN(NOL)
+    For I=1 To GNBPLAN
+     Assign "[M]ACC"+num$(I)+"("+num$(NOL)+")" With ""
+    Next
+# Pourquoi initialiser ACCLIN dans une premier passe... autant tout faire sous le $CONTROLE
+#    [M]ACCLIN(NOL)=[F:CDA]ACC
+   Endif
+  Endif
+ Endif
+
+# Pourquoi initialiser ACCLIN dans une premier passe... autant tout faire sous le $CONTROLE
+# If [M]ACCLIN(NOL)<>""
+#  [M]SACLIN(NOL)=""
+#  If !instr(1,[M]ACCLIN(NOL),"x")
+#   Call LECTURE("GAC",[M]ACCLIN(NOL),"") From CONTOBJ
+#   If [F:GAC]TYP=3 : [M]SACLIN(NOL)=[F:GAC]ACCSHO : Endif
+#  Endif
+# Elsif [M]SACLIN(NOL)<>""
+#  Read [GAC]GAC1=[M]COA;[M]BPRSAC
+#  If !fstat : [M]ACCLIN(NOL)=[F:GAC]ACC : Endif
+# Endif
+ If [M]SACLIN(NOL)<>"" & [M]BPRLIN(NOL)=""    : [M]BPRLIN(NOL)=[M]BPR
+ Elsif [M]SACLIN(NOL)="" & [M]BPRLIN(NOL)<>"" : [M]BPRLIN(NOL)=""
+ Endif
+
+Next NOL
+
+
+Return
+
+$VERF_BAN
+If [M]BAN<>""
+ Call LECTURE("BAN",[M]BAN,"") From CONTOBJ
+ If [F:BAN]CPY<>"" & [M]CPY<>[F:BAN]CPY    : [M]BAN=""
+ Elsif [F:BAN]FCY<>"" & [M]FCY<>[F:BAN]FCY : [M]BAN=""
+ Elsif dim([F:BAN]ACS)>0 & [F:BAN]ACS<>""
+  Call CONTEXE([F:BAN]ACS) From CPTSUB
+  If mkstat : [M]BAN="" : mkstat=0 : Endif
+ Endif
+Endif
+Return
+
+#####################################
+
+$CONTROLE
+# Bader: 2017-10-09 X3-56107 begin (take over analytical dimensions)
+Global Char  GDEPVATLIN(GLONVAT) : GDEPVATLIN = ""
+# Bader: 2017-10-09 X3-56107 end
+Local Libelle BPRTYP
+
+CHPIMPTYP="PYH"
+
+# Type de règlement
+Call LECTURE("CPY",[M]CPY,"") From CONTOBJ
+
+# Bader: 2017-10-09 X3-56107 begin (take over analytical dimensions)
+Call PARAM([M]CPY,"DEPMGTMOD",DEPMOD) From ADOVAL
+GDEPMGTMOD=val(DEPMOD)
+# Bader: 2017-10-09 X3-56107 end
+
+Call CONTTPY([M]PAYTYP,[F:CPY]LEG,"") From SUBTPY
+If mkstat
+ CHPIMP = "PAYTYP" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]PAYTYP-mess(83,123,1)-GMESSAGE,1) From GESECRAN
+ mkstat=0 : GMESSAGE="" : OKPYH = 1
+Elsif dim([F:TPY]ACS)>0 & [F:TPY]ACS<>""
+ Call CONTEXE([F:TPY]ACS) From CPTSUB
+ If mkstat
+  CHPIMP = "PAYTYP" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]PAYTYP-GMESSAGE,1) From GESECRAN
+  mkstat=0 : GMESSAGE="" : OKPYH = 1
+ Endif
+Endif
+
+# Site, Société, Date de règlement
+[M]FCYOPT = 3 : [M]BPROPT=3
+Call LECTURE("FCY",[M]FCY,"") From CONTOBJ
+If fstat
+ CHPIMP = "FCY" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]FCY-mess(83,123,1),1) From GESECRAN
+ OKPYH = 1
+Elsif [M]CPY<>[F:FCY]LEGCPY
+ # Site ou société incorrect
+ Call ECR_TRACE(mess(32,126,1)-"FCY"-"CPY"-":"-[M]FCY-[M]CPY-mess(86,106,1),1) From GESECRAN
+ OKPYH = 1
+Else
+ # Les droits de création sur le site sont vérifié dans $VALID
+ mkstat=0
+ Call CONTPER([M]ACCDAT,GTYPGEN,[M]FCY) From CPTSUB
+ If mkstat<>0
+  CHPIMP = "ACCDAT" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]ACCDAT-GMESSAGE,1) From GESECRAN
+  mkstat=0 : GMESSAGE="": OKPYH = 1
+ Else
+  Call PARAM([M]FCY,"SEVFCYENT",XCRITERE) From ADOVAL
+  [M]FCYOPT=val(XCRITERE) : # OD inter-sites
+  Call PARAM([M]FCY,"SEVBPRENT",XCRITERE) From ADOVAL
+  [M]BPROPT=val(XCRITERE) : # OD inter-tiers
+ Endif
+Endif
+Call GETSOC([M]FCY) From DEVSUB
+
+If filinfo(filpath("FIL","MANDATE","fde",""),0)>0 & dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]SNS=2 & [F:TPY]EPACDTTRF=2
+ # The BPR should not be empty
+ If [M]BPR=""
+  CHPIMP = "BPR" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-mess(10,123,1),1) From GESECRAN
+  mkstat=0 : GMESSAGE="": OKPYH = 1
+ Endif
+ # Ctrl the SEPA creditor indentifier
+ Call C_UMRNUM([M]UMRNUM) From SUBPAY
+ If GMESSAGE<>""
+  CHPIMP = "UMRNUM" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]UMRNUM-GMESSAGE,1) From GESECRAN
+  mkstat=0 : GMESSAGE="": OKPYH = 1
+ Endif
+ # Ctrl the duddate  - Only the message for information - no stop
+ Call LEC_MDT([M]CPY,[M]UMRNUM)From CPTLEC
+ If [M]DUDDAT<[F:MDT]SIGDAT
+  GMESSAGE=mess(289,117,1)-format$("D:"+GFMDAT,[F:MDT]SIGDAT)
+  CHPIMP = "DUDDAT" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-format$("D:"+GFMDAT,[M]DUDDAT)-GMESSAGE,1) From GESECRAN
+  mkstat=0 : GMESSAGE="": OKPYH = 1
+ Endif
+ # Initialization of address field
+ Call INIT_ADD([M]UMRNUM,[M]BPAINV)From PAYSDDLIB
+ #To initialize the sequence
+ Call CALSEQTYP([M]CPY,[M]UMRNUM,[M]UMRSEQ) From PAYSDDLIB
+Endif
+
+# Sens de règlement
+If !find([M]SNS,1,2)
+ CHPIMP = "SNS" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]SNS)-mess(83,123,1),1) From GESECRAN
+ OKPYH = 1
+Endif
+
+# Mode de règlement
+NBRPAM = find("",[F:TPY]PAM)
+If !NBRPAM : NBRPAM=dim([F:TPY]PAM) : Endif
+If !find([M]PAM,[F:TPY]PAM(0..NBRPAM-1))
+ CHPIMP = "PAM" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]PAM-mess(83,123,1),1) From GESECRAN
+ OKPYH = 1
+Endif
+
+# Devise
+ARODEV=0
+If [M]CUR<>""
+ Call LECTURE("TCU",[M]CUR,"") From CONTOBJ
+ If fstat
+  CHPIMP = "CUR" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]CUR-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Else
+  ARODEV=[F:TCU]CURRND
+ Endif
+Else
+ CHPIMP = "CUR" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]CUR-mess(10,123,1),1) From GESECRAN
+ OKPYH = 1
+Endif
+
+# Montant en devise
+If [M]AMTCUR<0
+ CHPIMP = "AMTCUR" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]AMTCUR)-mess(83,123,1),1) From GESECRAN
+ OKPYH = 1
+Elsif ARODEV<>0 & [M]AMTCUR<>arr([M]AMTCUR,ARODEV)
+ CHPIMP = "AMTCUR" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-"CUR"-CHPIMPLIB-":"-num$([M]AMTCUR)-[M]CUR-mess(83,123,1),1) From GESECRAN
+ OKPYH = 1
+Endif
+
+# Compte
+If [M]ACC=""
+ CHPIMP = "ACC" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]ACC-mess(10,123,1),1) From GESECRAN
+ OKPYH = 1
+Else
+ Call LECTURE("GAC",[M]ACC,[M]COA) From CONTOBJ
+ If fstat
+  CHPIMP = "ACC" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]ACC-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Elsif ([F:GAC]SAC<>2 & [M]BPRSAC<>"") | ([F:GAC]SAC=2 & [M]BPRSAC<>[F:GAC]ACCSHO)
+  Call ECR_TRACE(mess(32,126,1)-"BPRSAC"-"ACC"-":"-[M]BPRSAC-[M]ACC-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Endif
+Endif
+
+# Tiers
+If ([M]BPRSAC<>"" & [M]BPR="") | ([M]BPRSAC="" & [M]BPR<>"")
+ # Tiers et collectif incompatible
+ Call ECR_TRACE(mess(32,126,1)-"BPR"-"BPRSAC"-":"-[M]BPR-[M]BPRSAC-mess(45,106,1),1) From GESECRAN
+ OKPYH = 1
+Elsif [M]BPR<>""
+ Call LECTURE("BPR",[M]BPR,"") From CONTOBJ
+ If fstat
+  CHPIMP = "BPR" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]BPR-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Endif
+Endif
+
+If [M]BPR<>""
+ If [M]SNS=1 : # Dépense
+  GMESSAGE="" : Call FOUBAP([M]BPR) From SUBPAY2
+  If GMESSAGE<>""
+   CHPIMP = "BPR" : Gosub SETLIB : # Fournisseur bloqué en paiement
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-GMESSAGE,1) From GESECRAN
+   GMESSAGE="" : OKPYH = 1
+  Endif
+ Endif
+ If [M]FCY<>"" & [M]ACC<>""
+  mkstat=0 : Call CONTBPRCPY([M]BPR,[M]FCY,[M]COA,[M]ACC,"") From CPTSUB
+  If mkstat<>0
+   CHPIMP = "BPR" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-GMESSAGE,1) From GESECRAN
+   GMESSAGE="" : mkstat=0 : OKPYH = 1
+  Endif
+ Endif
+Endif
+
+# Banque
+If [M]BAN<>""
+ Call LECTURE("BAN",[M]BAN,"") From CONTOBJ
+ If fstat
+  CHPIMP = "BAN" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]BAN-mess(83,123,1),1) From GESECRAN
+  OKPYH=1
+ Elsif [F:TPY]BANCSH<>0 & [F:TPY]BANCSH<>[F:BAN]BANCSH
+  CHPIMP = "BAN" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-mess([F:BAN]BANCSH,653,1),1) From GESECRAN
+  OKPYH=1
+ Elsif [F:BAN]FCY<>"" & [M]FCY<>"" & [M]FCY<>[F:BAN]FCY
+  # Banque/Caisse du site FCY
+  Call ECR_TRACE(mess(32,126,1)-"BAN"-"FCY"-":"-[M]BAN-[M]FCY-mess([F:TPY]BANCSH,653,1)-mess(4,117,1)-[F:BAN]FCY,1) From GESECRAN
+  OKPYH = 1
+ Elsif [F:BAN]CPY<>"" & [M]CPY<>"" & [M]CPY<>[F:BAN]CPY
+  # Banque/Caisse de la société CPY
+  Call ECR_TRACE(mess(32,126,1)-"BAN"-"CPY"-":"-[M]BAN-[M]CPY-mess([F:TPY]BANCSH,653,1)-mess(5,117,1)-[F:BAN]CPY,1) From GESECRAN
+  OKPYH = 1
+ Elsif dim([F:BAN]ACS)>0 & [F:BAN]ACS<>""
+  Call CONTEXE([F:BAN]ACS) From CPTSUB
+  If mkstat<>0
+   CHPIMP = "BAN" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-GMESSAGE,1) From GESECRAN
+   GMESSAGE="" : mkstat=0 : OKPYH = 1
+  Endif
+ Endif
+Endif
+
+# Montant banque
+If [M]BAN=""
+ [M]AMTBAN=0
+Elsif [M]CUR=[M]CURBAN
+ [M]AMTBAN=[M]AMTCUR
+Elsif [M]AMTBAN<>0
+ Call LECTURE("TCU",[M]CURBAN,"") From CONTOBJ
+ If [F:TCU]EURFLG=2 & ([F:TCU]EURDAT=[0/0/0] | [F:TCU]EURDAT<=[M]ACCDAT)
+  Call LECTURE("TCU",[M]CUR,"") From CONTOBJ
+  If [F:TCU]EURFLG=2 & ([F:TCU]EURDAT=[0/0/0] | [F:TCU]EURDAT<=[M]ACCDAT): [M]AMTBAN=0 : Endif
+ Endif
+Endif
+
+# Type de remise
+If [M]FRMTYP<0 | [M]FRMTYP>len(mess(0,655,1))
+ CHPIMP = "FRMTYP" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]FRMTYP)-mess(83,123,1),1) From GESECRAN
+ OKPYH=1
+Endif
+
+# RIB et domiciliations 1 et 2
+I=1
+If [M]BIDCRY="" & [M]BID<>"" : I=0
+Elsif [M]BIDCRY<>""
+ Call LECTURE("TCY",[M]BIDCRY,"") From CONTOBJ
+ If fstat : I=0 : Endif
+Endif
+If !I
+ CHPIMP = "BIDCRY" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]BIDCRY-mess(83,123,1),1) From GESECRAN
+ OKPYH=1
+Endif
+
+# Carte bancaire
+If [M]CRDTYP<>""
+ Call LECTURE("ADI",[M]CRDTYP,"314") From CONTOBJ
+ If fstat
+  CHPIMP = "CRDTYP" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]CRDTYP-mess(83,123,1),1) From GESECRAN
+  OKPYH=1
+ Endif
+Endif
+If ([M]CRDNUM="" & [M]CRDTYP<>"") | ([M]CRDNUM<>"" & [M]CRDTYP="")
+  Call ECR_TRACE(mess(32,126,1)-"CRDTYP"-"CRDNUM"-":"-[M]CRDTYP-[M]CRDNUM-mess(83,123,1),1) From GESECRAN
+  OKPYH=1
+Elsif [M]CRDNUM<>""
+ mkstat=0 : Call CONTCB([M]CRDTYP,[M]CRDNUM) From CONTNUM
+ If mkstat<>0
+  CHPIMP = "CRDNUM" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]CRDNUM-GMESSAGE,1) From GESECRAN
+  mkstat=0 : GMESSAGE="" : OKPYH=1
+ Endif
+Endif
+If [M]CRDNUM=""
+ Raz [M]CRDEXYDAT, [M]CRDAUZ
+Endif
+
+# Chèque
+If [M]CHQTYP<0 | [M]CHQTYP>len(mess(0,654,1))
+ CHPIMP = "CHQTYP" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]CHQTYP)-mess(83,123,1),1) From GESECRAN
+ OKPYH=1
+Endif
+
+If [M]CHQNUM<>"" & [M]SNS=2 : # Chèque reçu
+ Filter [PYH2] Where CHQNUM=[M]CHQNUM & SNS=2
+ Read [PYH2]PYH0 First
+ Filter [PYH2]
+ If fstat<=2 : # CHQNUM Numéro de chèque sur le règlement NUM (PAYTYP)
+  Call TRACE(-2,"CHQNUM"-mess(56,121,1)-[F:PYH2]NUM-"("+[F:PYH2]PAYTYP+")") From SUBIMPOBJ
+ Endif
+ Raz [F:PYH2]
+Endif
+
+# Zones supplémentaires ...
+For I=0 To [F:TPY]NBRSUP-1
+ Read [AMZ]CODE = "PAY2";[F:TPY]ZONSUP(I)
+# SAM 120520 - 2016-12-22 by Bader : check dim for fields with activity code that might not exist in screen
+# If fstat=0 & [F:AMZ]NOLIB<>0
+ If fstat=0 & [F:AMZ]NOLIB<>0 & (evalue("dim([M]"+[F:TPY]ZONSUP(I)+")") > 0)
+# End SAM 120520
+  K = evalue("[M]"+[F:TPY]ZONSUP(I))
+  J = len(mess(0,[F:AMZ]NOLIB,1))
+  If K<0 or K>J
+   CHPIMP = [F:TPY]ZONSUP(I) : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$(I)-mess(83,123,1),1) From GESECRAN
+   OKPYH=1
+  Endif
+# SAM 120520 - 2016-12-22 by Bader : check dim for fields with activity code that might not exist in screen
+# Elsif fstat=0 & [F:AMZ]CODTYP="ADI" & evalue("[M]"+[F:TPY]ZONSUP(I))<>""
+ Elsif fstat=0 & [F:AMZ]CODTYP="ADI" & (evalue("dim([M]"+[F:TPY]ZONSUP(I)+")") > 0) & evalue("[M]"+[F:TPY]ZONSUP(I))<>""
+# End SAM 120520
+  Read [AMP]CODPAR = 1;"PAY2";[F:TPY]ZONSUP(I);"ADI"
+  If fstat=0
+   Onerrgo CHUT From CONTROLE
+   [L]NUMADI=val([F:AMP]VALPAR)
+   Onerrgo
+   If GERREUR : GERREUR=0 : [L]NUMADI=0 : Endif
+   If [L]NUMADI<>0
+    Call LECTURE("ADI",evalue("[M]"+[F:TPY]ZONSUP(I)),num$([L]NUMADI)) From CONTOBJ
+    If fstat
+     CHPIMP = [F:TPY]ZONSUP(I) : Gosub SETLIB
+     Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-evalue("[M]"+[F:TPY]ZONSUP(I))-mess(83,123,1),1) From GESECRAN
+     OKPYH=1
+    Endif
+   Endif
+  Endif
+ Endif
+Next I
+
+# Zones obligatoires ...
+For CHPIMP="BAN","CPY","REF","FRMREF","DES","DESLIN","PAM","ORIDAT","DUDDAT","VALDAT","BILDAT"
+&       ,"BID","PAB1","PAB2","BPRREF","CHQTYP","CHQNUM","CHQBAN","FRMTYP","CRDNUM","CRDAUZ"
+&       ,"PURTYP"
+ If evalue("[F:TPY]DAC"+CHPIMP)=1 & evalue("dim([M]"+CHPIMP+")")>0 &
+&   evalue("[M]"+CHPIMP)=evalue("[F:PYH2]"+CHPIMP)
+  Gosub SETLIB : # Zone obligatoire
+  Call ECR_TRACE(CHPIMP-CHPIMPLIB-":"-mess(10,123,1),1) From GESECRAN
+  OKPYH=1
+ Endif
+Next : # CHPIMP
+For I=0 To [F:TPY]NBRSUP-1
+ If [F:TPY]DACSUP(I)=1 & evalue("dim([M]"+[F:TPY]ZONSUP(I)+")")>0 &
+&   evalue("[M]"+[F:TPY]ZONSUP(I))=evalue("[F:PYH2]"+[F:TPY]ZONSUP(I))
+  CHPIMP = [F:TPY]ZONSUP(I) : Gosub SETLIB : # Zone obligatoire
+  Call ECR_TRACE(CHPIMP-CHPIMPLIB-":"-mess(10,123,1),1) From GESECRAN
+  OKPYH=1
+ Endif
+Next I
+
+## Les lignes
+
+CHPIMPTYP="PYD"
+If dim([M:PAY1]NBLIG)>0
+ SVGNB = [M:PAY1]NBLIG
+Elsif dim([M:PAY2]NBLIG)>0
+ SVGNB = [M:PAY2]NBLIG
+Elsif dim([M:PAY3]NBLIG)>0
+ SVGNB = [M:PAY3]NBLIG
+Endif
+
+For NOL=0 To SVGNB-1
+ # Destination comptable
+ [M]ACCTYP(NOL)=1 : [M]ACCSNS(NOL)=1
+ If [M]DENCOD(NOL)=""
+  CHPIMP="DENCOD" : Gosub SETLIB : # Zone obligatoire
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-mess(10,123,1),1) From GESECRAN
+ Else
+  Call LEC_CDA_LEG([F:CPY]LEG,[M]DENCOD(NOL)) From CPTLEC
+  If fstat
+   CHPIMP = "DENCOD" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]DENCOD(NOL)-mess(83,123,1),1) From GESECRAN
+   OKPYH=1
+  Else
+   [M]ACCTYP(NOL) = [F:CDA]ACCTYP
+   [M]ACCSNS(NOL) = [F:CDA]ACCSNS
+
+   If GDEPMGTMOD=4 GDEPVATLIN = [M]VATLIN(NOL) Endif # X3-214420 2021-08-25 Bader
+
+   Gosub SET_ACCLIN From SUBPAY
+  Endif
+ Endif
+
+ # SACLIN, ACCLIN, BPRLIN
+ For I=1 To GNBPLAN
+  [L]ACC = evalue("[M]ACC"+num$(I)+"("+num$(NOL)+")")
+  If [L]ACC<>""
+   Call LECTURE("GAC",[L]ACC,GPLAN(I)) From CONTOBJ
+   If fstat
+    CHPIMP = "ACC"+num$(I) : Gosub SETLIB
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[L]ACC-mess(83,123,1),1) From GESECRAN
+    OKPYH=1
+   Else
+    Read [CLS]CLS0 = [F:COA]LEGCLS;[F:GAC]CLSCOD
+    If [F:CLS]TYP=2 : : # Cpte hors-bilan
+     CHPIMP = "ACCLIN" : Gosub SETLIB
+     Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[L]ACC-mess(56,102,1),1) From GESECRAN
+     OKPYH=1
+    Endif
+   Endif
+  Endif
+ Next
+
+ If [M]SACLIN(NOL)<>""
+  If  [M]BPRLIN(NOL)=""
+   CHPIMP = "BPRLIN" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-": SACLIN("+num$(NOL)+")="+[M]SACLIN(NOL)-mess(83,123,1),1) From GESECRAN
+   OKPYH=1
+  Else
+   Call LECTURE("BPR",[M]BPRLIN(NOL),"") From CONTOBJ
+   If fstat
+    CHPIMP = "BPRLIN" : Gosub SETLIB
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-mess(83,123,1),1) From GESECRAN
+    OKPYH=1
+   Elsif !(([F:BPR]BPCFLG=2 & [F:GAC]AUZBPR(0)=2)
+&        | ([F:BPR]BPSFLG=2 & [F:GAC]AUZBPR(1)=2)
+&        | ([F:BPR]BPTFLG=2 & [F:GAC]AUZBPR(2)=2)
+&        | ([F:BPR]FCTFLG=2 & [F:GAC]AUZBPR(3)=2)
+&        | ([F:BPR]REPFLG=2 & [F:GAC]AUZBPR(4)=2)
+&        | ([F:BPR]BPRACC=2 & [F:GAC]AUZBPR(5)=2))
+    CHPIMP = "BPRLIN" : Gosub SETLIB : # Tiers incompatible avec le collectif
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]BPRLIN(NOL)-mess(45,106,1)-[M]SACLIN(NOL),1) From GESECRAN
+    OKPYH=1
+   Endif
+  Endif
+ Endif
+
+ # Type de pièce imputée
+ If ([M]VCRTYP(NOL)="" & [M]VCRNUM(NOL)<>"") | ([M]VCRTYP(NOL)<>"" & [M]VCRNUM(NOL)="")
+  Call ECR_TRACE(mess(32,126,1)-"VCRTYP("+num$(NOL)+")"-"VCRNUM("+num$(NOL)+") :"-[M]VCRTYP(NOL)-[M]VCRNUM(NOL)-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Elsif [M]VCRTYP(NOL)<>"" & ([F:CDA]IPTDAC=1 | ([M]ACC<>"" & [M]BPR=""))
+  CHPIMP = "VCRTYP" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]VCRTYP(NOL)-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Endif
+ [M]IPTTYP(NOL)=0
+ If [M]VCRTYP(NOL)<>""
+  Call LEC_GTE_LEG(GCURLEG,[M]VCRTYP(NOL)) From CPTLEC
+  If fstat
+   Case [M]VCRTYP(NOL)
+    When [M]BPCTYP,"*SO" : [M]VCRTYP(NOL)=[M]BPCTYP : [M]IPTTYP(NOL)=1
+    When [M]BPSTYP,"*PO" : [M]VCRTYP(NOL)=[M]BPSTYP : [M]IPTTYP(NOL)=2
+    When [L]PROTYP       : [M]IPTTYP(NOL)=4
+    When Default         : [M]IPTTYP(NOL)=0
+     CHPIMP = "VCRTYP" : Gosub SETLIB : # Type de pièce inexistant
+     Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]VCRTYP(NOL)-mess(17,114,1),1) From GESECRAN
+     OKPYH = 1
+   Endcase
+  Else
+   [M]IPTTYP(NOL)=3
+   If [F:CDA]ACCBPR<>""
+    CHPIMP = "VCRTYP" : Gosub SETLIB : # Type de pièce incorrecte
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]VCRTYP(NOL)-mess(43,106,1),1) From GESECRAN
+    OKPYH = 1
+   Endif
+  Endif
+ Endif
+ If [M]IPTTYP(NOL)=4 & [M]ACCTYP(NOL)<>1
+  Call ECR_TRACE(mess(32,126,1)-"IPTTYP("+num$(NOL)+")"-"ACCTYP("+num$(NOL)+") :"-mess(4,659,1)-mess([M]ACCTYP(NOL),612,1),1) From GESECRAN
+  OKPYH = 1
+ Endif
+
+ # Numéro de pièce imputée
+ If [M]VCRNUM(NOL)<>"" & [M]IPTTYP(NOL)<>0
+  [L]SOC="" : [L]SITE=""
+  Case [M]IPTTYP(NOL)
+   When 1 : # Cde cli
+    Call LECTURE("SOH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If fstat=0 : [L]SITE=[F:SOH]SALFCY : Endif
+   When 2 : # Cde fou
+    Call LECTURE("POH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If fstat=0 : [L]SITE=[F:POH]POHFCY : Endif
+   When 4 : # Proforma fournisseur
+    Read [PIH]PIH0 = [M]VCRNUM(NOL)
+    If fstat=0 : [L]SOC=[F:PIH]CPY : Endif
+   When Default : # Pièce comptable
+    Call LECTURE("GAS",[M]VCRTYP(NOL),[M]VCRTYP(NOL)) From CONTOBJ
+    If fstat=0 : [L]SOC=[F:HAE]CPY
+    Else
+     Read [DUD]DUD0(2) = [M]VCRTYP(NOL);[M]VCRNUM(NOL)
+     If fstat=0 : [L]SOC=[F:DUD]CPY : Endif
+    Endif
+  Endcase
+  If fstat or ([M]IPTTYP(NOL)=4 & [F:PIH]INVTYP<>5)
+   ## Commande client/Commande fournisseur inexistante/Pièce comptable/Proforma fournisseur inexistante
+   Call ECR_TRACE(mess(32,126,1)-"VCRTYP("+num$(NOL)+") VCRNUM("+num$(NOL)+") :"-[M]VCRTYP(NOL)-[M]VCRNUM(NOL)-mess([M]IPTTYP(NOL),659,1)-mess(20,117,1),1) From GESECRAN
+   OKPYH = 1
+  Else
+   If [L]SITE<>"" & [L]SOC=""
+    I = find([L]SITE,GSITE(1..GNBSITE))
+    If I : [L]SOC=GSOCSITE(I) : Endif
+   Endif
+   If [M]CPY<>"" & [L]SOC<>[M]CPY
+    # Commande client/ Commande fournisseur ... de la société SOC
+    Call ECR_TRACE(mess(32,126,1)-"VCRNUM("+num$(NOL)+") :"-[M]VCRNUM(NOL)-mess([M]IPTTYP(NOL),659,1)-mess(5,117,1)-[L]SOC,1) From GESECRAN
+    OKPYH = 1
+   Elsif [M]IPTTYP(NOL)=2 & [F:POH]POHTYP<>1
+    CHPIMP = "VCRNUM" : Gosub SETLIB : # Commande ouverte
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]VCRNUM(NOL)-mess([F:POH]POHTYP,506,1),1) From GESECRAN
+    OKPYH = 1
+   Elsif find([M]IPTTYP(NOL),1,2)
+    Call LECTURE("FCY",[L]SITE,"") From CONTOBJ
+    If ([M]FCYOPT=1 & [M]FCY<>"" & [F:FCY]FINRSPFCY<>[M]FCY)
+&    | ([M]FCYOPT=2 & GUSRFCY(1)<>"\" & !find([F:FCY]FINRSPFCY,GUSRFCY(1..GNBAUZ)))
+     # Commande client/fournisseur du site FCY
+     Call ECR_TRACE(mess(32,126,1)-"VCRNUM("+num$(NOL)+") :"-[M]VCRNUM(NOL)-mess([M]IPTTYP(NOL),659,1)-mess(4,117,1)-[F:FCY]FINRSPFCY,1) From GESECRAN
+     OKPYH = 1
+    Endif
+   Elsif [M]IPTTYP(NOL)=3 & [F:HAE]FLGREP=2 : # Pièce de fin d'exercice
+    Call ECR_TRACE(mess(32,126,1)-"VCRTYP("+num$(NOL)+") VCRNUM("+num$(NOL)+") :"-[M]VCRTYP(NOL)-[M]VCRNUM(NOL)-mess(20,121,1),1) From GESECRAN
+    OKPYH = 1
+   Elsif [M]IPTTYP(NOL)=4
+    If [F:PIH]STA<>3 : # Facture non validée
+     Call ECR_TRACE(mess(32,126,1)-"VCRTYP("+num$(NOL)+") VCRNUM("+num$(NOL)+") :"-[M]VCRTYP(NOL)-[M]VCRNUM(NOL)-mess(36,119,1),1) From GESECRAN
+     OKPYH = 1
+    Elsif [F:PIH]RITPAY<>"" : # Facture imputée sur le règlement
+     Call ECR_TRACE(mess(32,126,1)-"VCRTYP("+num$(NOL)+") VCRNUM("+num$(NOL)+") :"-[M]VCRTYP(NOL)-[M]VCRNUM(NOL)-mess(16,131,1)-[F:PIH]RITPAY,1) From GESECRAN
+     OKPYH = 1
+    Endif
+   Endif
+  Endif
+ Endif
+
+ # Echéance
+ If find([M]IPTTYP(NOL),0,4)
+  [M]DUDNUM(NOL)=0 : [M]DUDLIG(NOL)=0
+ Elsif [M]VCRTYP(NOL)<>"" & [M]VCRNUM(NOL)<>""
+  Read [DUD]DUD1 = [M]DUDNUM(NOL);[M]DUDLIG(NOL)
+  If fstat | ([M]DUDNUM(NOL)=0 & [M]DUDLIG(NOL)=0)
+   K=-1
+   If [M]IPTTYP(NOL)=1
+    Call LECTURE("SOH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If fstat=0 : K=[F:SOH]INVSTA : Endif
+   Elsif [M]IPTTYP=2 & [M]USRPAZ>=[M]MAXPAZ
+    Call LECTURE("POH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If fstat=0 : K=[F:POH]INVFLG : Endif
+   Endif
+   Case K
+    When -1 : # Echéance inexistante
+     Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") :"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-mess(38,110,1),1) From GESECRAN
+     OKPYH = 1
+    When 3 : # Commande totalement facturée
+     Call ECR_TRACE(mess(32,126,1)-"VCRNUM("+num$(NOL)+") :"-num$([M]VCRNUM(NOL))-mess(57,117,1),1) From GESECRAN
+     OKPYH = 1
+    When Default : # Commande partiellement facturée, Pas d'acompte demandé
+     Call ECR_TRACE(mess([M]IPTTYP(NOL),659,1)-num$([M]VCRNUM(NOL))-":"-string$(K=2,mess(58,117,1)+",")-mess(21,117,1),0) From GESECRAN
+   Endcase
+   [M]DUDNUM(NOL)=0 : [M]DUDLIG(NOL)=0
+  Else
+   If [M]VCRNUM(NOL)<>[F:DUD]NUM & (([F:DUD]TYP="*SO" & [M]IPTTYP(NOL)<>1) |
+&     ([F:DUD]TYP="*PO" & [M]IPTTYP(NOL)<>2) |
+&     ([F:DUD]TYP<>"*SO" & [F:DUD]TYP<>"*PO" & [M]VCRTYP(NOL)<>[F:DUD]TYP))
+    Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") VCRTYP("+num$(NOL)+") VCRNUM("+num$(NOL)+") :"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-[M]VCRTYP(NOL)-[M]VCRNUM(NOL)-
+& mess(83,123,1),1) From GESECRAN
+    OKPYH = 1
+   Endif
+   If [M]FCYOPT=1 & [M]FCY<>"" & [F:DUD]FCY<>[M]FCY
+    Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") :"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-mess(83,123,1)-"FCY<>"+[M]FCY,1) From GESECRAN
+    OKPYH = 1
+   Elsif [M]FCYOPT<>1 & [M]CPY<>"" & [F:DUD]CPY<>[M]CPY
+    Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") :"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-mess(83,123,1)-"CPY<>"+[M]CPY,1) From GESECRAN
+    OKPYH = 1
+   Endif
+   If find([M]IPTTYP(NOL),1,2) & [F:DUD]PAMTYP=1
+    Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") :"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-mess(83,123,1)-"PAMTYP=1",1) From GESECRAN
+    OKPYH = 1
+   Endif
+
+   If dim(GSDDMGT)>0 & GSDDMGT=2 & [F:TPY]SNS=2 & [F:TPY]EPACDTTRF=2
+    # The dudate should have the same SEPA creditor identifier than the PAYMENTH one.
+    If [M]UMRNUM<>[F:DUD]UMRNUM
+     Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") :"-num$([M]VCRNUM(NOL))-num$([M]DUDLIG(NOL))-mess(83,123,1)-"UMRNUM<>"+[M]UMRNUM,1) From GESECRAN
+     OKPYH=1
+    Endif
+   Endif
+
+   GMESSAGE="" : Gosub CTL_DUD From SUBPAY2
+   If GMESSAGE<>""
+    Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") :"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-GMESSAGE,1) From GESECRAN
+    GMESSAGE="" : OKPYH = 1
+   Endif
+   GMESSAGE=""
+   Gosub VRF_DUD From SUBPAY2
+   If GMESSAGE<>"" # Echéance
+    GMESSAGE=right$(GMESSAGE,2)
+    Call ECR_TRACE(GMESSAGE,0) From GESECRAN
+    GMESSAGE=""
+   Endif
+  Endif
+ Endif
+
+ # Site ligne
+ If [M]DUDNUM(NOL)<>0 & [M]DUDLIG(NOL)<>0
+  If [M]FCYLIN(NOL)="" : [M]FCYLIN(NOL)=[F:DUD]FCY : Endif
+ Elsif [M]IPTTYP(NOL)<>4 & ([M]FCYOPT=1 | (GUSRFCY(1)<>"\" & GNBAUZ=1))
+  [M]FCYLIN(NOL)=[M]FCY
+ Else
+  [L]SITE = ""
+  Case [M]IPTTYP(NOL)
+   When 1
+    Call LECTURE("SOH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If [M]FCYLIN(NOL)="" : [L]SITE = [F:SOH]SALFCY : Endif
+   When 2
+    Call LECTURE("POH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If [M]FCYLIN(NOL)="" : [L]SITE = [F:POH]POHFCY : Endif
+   When 4
+    Call LECTURE("PIH",[M]VCRNUM(NOL),"") From CONTOBJ
+    [L]SITE = [F:PIH]FCY
+  Endcase
+  If [L]SITE<>""
+   Call LECTURE("FCY",[L]SITE,"") From CONTOBJ
+   [M]FCYLIN(NOL)=[F:FCY]FINRSPFCY
+  Endif
+  If [M]FCYLIN(NOL)="" : [M]FCYLIN(NOL)=[M]FCY : Endif
+ Endif
+
+ If [M]DUDNUM(NOL)<>0 & [M]DUDLIG(NOL)<>0
+  If [F:DUD]FCY<>[M]FCYLIN(NOL)
+   CHPIMP = "FCYLIN" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+") FCYLIN("+num$(NOL)+") :"-CHPIMPLIB-":"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-[M]FCYLIN(NOL)-mess(83,123,1),1) From
+& GESECRAN
+   OKPYH = 1
+  Endif
+ Elsif [M]FCY<>"" & [M]FCYLIN(NOL)<>[M]FCY
+  If [M]FCYLIN(NOL)=""
+   CHPIMP = "FCYLIN" : Gosub SETLIB : # Zone obligatoire
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]FCYLIN(NOL)-mess(10,123,1),1) From GESECRAN
+   OKPYH = 1
+  Else
+   I=find([M]FCYLIN(NOL),GSITE(1..GNBSITE))
+   If !I
+    CHPIMP = "FCYLIN" : Gosub SETLIB
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]FCYLIN(NOL)-mess(83,123,1),1) From GESECRAN
+    OKPYH = 1
+   Elsif GSOCSITE(I)<>[M]CPY
+    CHPIMP = "FCYLIN" : Gosub SETLIB
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]FCYLIN(NOL)-mess(30,106,1)-GSOCSITE(I),1) From GESECRAN
+    OKPYH = 1
+   Endif
+  Endif
+ Endif
+
+ # Devise ligne
+ If [M]DUDNUM(NOL)<>0 & [M]DUDLIG(NOL)<>0
+  If [M]CURLIN(NOL)="" : [M]CURLIN(NOL)=[F:DUD]CUR : Endif
+ Elsif [M]ACCTYP(NOL)=2 & [M]CURLIN(NOL)="" : # Banque <=> Compte
+  If [M]CURBAN<>"" : [M]CURLIN(NOL)=[M]CURBAN : Else [M]CURLIN(NOL)=[M]CURCPY : Endif
+ Else
+  Case [M]IPTTYP(NOL)
+   When 1
+    Call LECTURE("SOH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If [M]CURLIN(NOL)="" : [M]CURLIN(NOL) = [F:SOH]CUR : Endif
+   When 2
+    Call LECTURE("POH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If [M]CURLIN(NOL)="" : [M]CURLIN(NOL) = [F:POH]CUR : Endif
+   When 4
+    Call LECTURE("PIH",[M]VCRNUM(NOL),"") From CONTOBJ
+    If [M]ACCTYP(NOL)<>2 | [M]CURLIN(NOL)="" : [M]CURLIN(NOL) = [F:PIH]CUR : Endif
+  Endcase
+  If [M]CURLIN(NOL)="" : [M]CURLIN(NOL)=[M]CUR : Endif
+ Endif
+
+ ARODEV=0
+ If [M]DUDNUM(NOL)<>0 & [M]DUDLIG(NOL)<>0 & [F:DUD]CUR<>[M]CURLIN(NOL)
+  CHPIMP = "CURLIN" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-"DUDNUM("+num$(NOL)+") DUDLIG("+num$(NOL)+")"-CHPIMP-CHPIMPLIB-":"-num$([M]DUDNUM(NOL))-num$([M]DUDLIG(NOL))-[M]CURLIN(NOL)-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Elsif [M]CURLIN(NOL)<>[M]CUR & find([M]ACCTYP(NOL),1,3) & [M]IPTTYP(NOL)=0
+  CHPIMP = "CURLIN" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]CURLIN(NOL)-mess(83,123,1)-"(<>CUR,="+[M]CUR+")",1) From GESECRAN
+  OKPYH = 1
+ Elsif [M]CURLIN(NOL)=""
+  CHPIMP = "CURLIN" : Gosub SETLIB : # Zone obligatoire
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]CURLIN(NOL)-mess(10,123,1),1) From GESECRAN
+  OKPYH = 1
+ Else
+  Call LECTURE("TCU",[M]CURLIN(NOL),"") From CONTOBJ
+  If fstat
+   CHPIMP = "CURLIN" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]CURLIN(NOL)-mess(83,123,1),1) From GESECRAN
+   OKPYH = 1
+  Else ARODEV=[F:TCU]CURRND
+  Endif
+ Endif
+
+ # Montant ligne
+ # Bader: 2017-08-15 X3-42421 begin (introduce GIMP(5))
+ #Raz [M]REGAMT2(NOL), [M]AMTLIN2(NOL)
+ If GIMP(5) <> "NOCALC"
+    Raz [M]REGAMT2(NOL), [M]AMTLIN2(NOL)
+ Endif
+ # Bader: 2017-08-15 X3-42421 end
+ If [M]AMTLIN(NOL)=0
+  CHPIMP = "AMTLIN" : Gosub SETLIB : # Zone obligatoire
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-mess(10,123,1),1) From GESECRAN
+  OKPYH = 1
+ Elsif [M]CURLIN(NOL)<>""
+  If ARODEV<>0 & [M]AMTLIN(NOL)<>arr([M]AMTLIN(NOL),ARODEV)
+   CHPIMP = "AMTLIN" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-"CURLIN("+num$(NOL)+")"-CHPIMPLIB-":"-num$([M]AMTLIN(NOL))-[M]CURLIN(NOL)-mess(83,123,1),1) From GESECRAN
+   OKPYH = 1
+  Elsif [M]ACCTYP(NOL)=1
+   # Bader: 2017-08-15 X3-42421 begin (introduce GIMP(5); no calculation of amount in bank currency, it is taken from file)
+   If GIMP(5) <> "NOCALC"
+   # Bader: 2017-08-15 X3-42421 end
+     Call CONVERT([M]CURLIN(NOL),[M]CUR,[M]CURCPY,[F:TPY]RATTYP,[M]ACCDAT
+&                ,[M]AMTLIN(NOL),[M]REGAMT2(NOL),STATX) From TRTDEV
+     If STATX : # Pas de cours de devises CURLIN -> CUR (ACCDAT)
+      CHPIMP = "AMTLINT" : Gosub SETLIB
+      Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-mess(16,114,1)-[M]CURLIN(NOL)-"->"-[M]CUR-"("+format$("D:"+GFMDAT,[M]ACCDAT)-")",1) From GESECRAN
+      OKPYH = 1
+     Else
+      Call SIGN2([M]ACCSNS(NOL),[M]SNS,[M]DUDNUM(NOL),[M]DUDLIG(NOL),[M]IPTTYP(NOL),K) From PAYDIV
+      [M]REGAMT2(NOL)=K*sgn([M]AMTLIN(NOL))*abs([M]REGAMT2(NOL))
+      [M]AMTLIN2(NOL)=[M]REGAMT2(NOL)
+     Endif
+   # Bader: 2017-08-15 X3-42421 begin (introduce GIMP(5))
+   Endif
+   # Bader: 2017-08-15 X3-42421 end
+  Endif
+ Endif
+
+ # Montants Ritenzione
+ If dim([M:PAY3]RITAMT)>0 | dim([M:PAY1]RITAMT)>0 | dim([M:PAY2]RITAMT)>0
+  Raz [M]RITAMT(NOL), [M]RITAMT2(NOL)
+  If [M]ACCTYP(NOL)=1
+   If [F:PIH]NUM<>[M]VCRNUM(NOL)
+    Read [PIH]PIH0 = [M]VCRNUM(NOL)
+   Endif
+   If fstat=0 & (([F:PIH]INVTYP=5 & [M]IPTTYP(NOL)=4) | [F:PIH]GTE=[M]VCRTYP(NOL))
+    For I=0 To [F:PIH]RITNBR-1
+     Call LECTURE("RTZ",[F:PIH]RITCOD(I),"") From CONTOBJ
+     If fstat=0 & [F:RTZ]TYP=1 & [F:RTZ]COE1<>0 : # Retenues sur règlement
+      MT = ([F:PIH]RITAMT(I)-[F:PIH]RITAMTDED(I))*[F:RTZ]COE1/([F:RTZ]COE1+[F:RTZ]COE2)
+      Call ARRDEV(MT,[M]RTZCUR) From TRTDIV
+      [M]RITAMT(NOL) += MT
+     Endif
+    Next I
+    If [M]RITAMT(NOL)<>0
+     [M]RITAMT(NOL)*=-1
+     If dim([M:PAY1]NBLIG)>0
+        SVGNB = [M:PAY1]NBLIG
+     Elsif dim([M:PAY2]NBLIG)>0
+        SVGNB = [M:PAY2]NBLIG
+     Elsif dim([M:PAY3]NBLIG)>0
+        SVGNB = [M:PAY3]NBLIG
+     Endif
+     For I=0 To SVGNB-1
+      If I<>NOL & [M]VCRTYP(I)=[M]VCRTYP(NOL) & [M]VCRNUM(I)=[M]VCRNUM(NOL) & [M]RITAMT(NOL)<>0
+       [M]RITAMT(NOL)=0 : Break
+      Endif
+     Next I
+     If [M]RITAMT(NOL)<>0
+      Call CONVERT([M]RTZCUR,[M]CUR,[M]CURCPY,[F:TPY]RATTYP,[M]ACCDAT
+&                 ,[M]RITAMT(NOL),[M]RITAMT2(NOL),STATX) From TRTDEV
+      If STATX : # Pas de cours de devises CURLIN -> CUR (ACCDAT)
+       CHPIMP = "RITAMT" : Gosub SETLIB
+       Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-mess(16,114,1)-[M]RTZCUR-"->"-[M]CUR-"("+format$("D:"+GFMDAT,[M]ACCDAT)-")",1) From GESECRAN
+       OKPYH = 1
+      Else
+       If find([F:PIH]INVTYP,2,4) : K=3 : Else K=2 : Endif
+       Call SIGN2(K,[M]SNS,0,0,0,K) From PAYDIV
+       [M]RITAMT2(NOL)=K*sgn([M]RITAMT(NOL))*abs([M]RITAMT2(NOL))
+       [M]AMTLIN2(NOL)+=[M]RITAMT2(NOL)
+      Endif
+     Endif
+    Endif
+   Endif
+  Endif
+ Endif
+
+ # Code TVA
+ If [M]DUDNUM(NOL)<>0 & [M]DUDLIG(NOL)<>0 & find([M]IPTTYP(NOL),1,2)
+  [M]VATLIN(NOL)=[F:DUD]VAT
+ Else
+  Gosub SET_TVA From SUBPAY
+ Endif
+
+ If [M]VATLIN(NOL)<>""
+  Call LEC_TVT_LEG(GCURLEG,[M]VATLIN(NOL)) From CPTLEC
+  If fstat
+   CHPIMP = "VATLIN" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]VATLIN(NOL)-mess(83,123,1),1) From GESECRAN
+   OKPYH = 1
+  Endif
+  # Bader: 2017-10-09 X3-56107 begin (take over analytical dimensions)
+  If GDEPMGTMOD=4
+   GDEPVATLIN = [M]VATLIN(NOL)
+   Gosub SET_ACCLIN From SUBPAY
+  Endif
+  # Bader: 2017-10-09 X3-56107 end
+ Endif
+
+ [M]UOM(NOL)=""
+ For I=1 To GNBPLAN
+  [L]ACC = evalue("[M]ACC"+num$(I)+"("+num$(NOL)+")")
+  # <CP> En Saisie... je n'ai pas vu l'appel...
+  mkstat =0 : Call CONTACC(GTYPLED(I),GPLAN(I),[L]ACC,[M]FCY,[M]CUR,[M]ACCDAT) From CPTCNT
+  If mkstat
+   CHPIMP = "[M]ACC"+num$(I) : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[L]ACC-GMESSAGE,1) From GESECRAN
+   GMESSAGE="" : mkstat=0 : OKPYH = 1
+  Elsif [F:GAC]FLGUOM=2 : [M]UOM(NOL)=[F:GAC]UOM
+  Endif
+ Next
+ If UOM(NOL)="" : [M]QTYLIN(NOL)=0
+ Else
+  Call LECTURE("TUN",[M]UOM(NOL),"") From CONTOBJ
+  AROQTE = 10^(-[F:TUN]UOMDEC)
+  If [M]QTYLIN(NOL)<>arr([M]QTYLIN(NOL),AROQTE)
+   CHPIMP = "QTYLIN" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-"UOM("+num$(NOL)+")"-CHPIMPLIB-":"-num$([M]QTYLIN(NOL))-[M]UOM(NOL)-mess(83,123,1),1) From GESECRAN
+   OKPYH = 1
+   [M]QTYLIN(NOL)=arr([M]QTYLIN(NOL),AROQTE)
+  Endif
+ Endif
+
+ # Répartition + sections analytiques
+ Local Integer SUIVI, I
+ Local Char TPLAN(GLONCOA)(1..dim([M]FMTCOA)), TCOMPTE(GLONGAC)(1..dim([M]FMTCOA))
+ For I=1 To GNBPLAN
+  TPLAN(I)   = GPLAN(I)
+  TCOMPTE(I) = evalue("[M]ACC"+num$(I)+"("+num$(NOL)+")")
+ Next
+ Call SUIVI_ANA([M]CPY,GTYPLED,GNBTYPLED,TPLAN,TCOMPTE,GAXE,GNBAXE,SUIVI) From CPTDIV
+ If !SUIVI
+  Raz [M]DSP(NOL),[M]PTV(NOL), [M]PTF(NOL)
+ Endif
+
+ If [M]DSP(NOL)="$"
+  If [M]AMTLIN(NOL)<>sum([M:VT2]TBAMT([M]PTV(NOL)..[M]PTF(NOL)))
+   CHPIMP = "AMTLIN" : Gosub SETLIB : # Répartition déséquilibrée
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]AMTLIN(NOL))-"<>"-num$(sum([M:VT2]TBAMT([M]PTV(NOL)..[M]PTF(NOL))))-mess(28,106,1),1) From GESECRAN
+   OKPYH = 1
+  Elsif [M]QTYLIN(NOL)<>sum([M:VT2]TBQTY([M]PTV(NOL)..[M]PTF(NOL)))
+   If find("QTYLIN",[M:AOE2]FLD(0..[M:AOE2]NBRLIG-1))
+    CHPIMP = "QTYLIN" : Gosub SETLIB : # Répartition déséquilibrée
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]QTYLIN(NOL))-"<>"-num$(sum([M:VT2]TBQTY([M]PTV(NOL)..[M]PTF(NOL))))-mess(28,106,1),1) From GESECRAN
+    OKPYH = 1
+   Else
+    [M]QTYLIN(NOL)=sum([M:VT2]TBQTY([M]PTV(NOL)..[M]PTF(NOL)))
+   Endif
+  Endif
+  CHPIMPTYP="PYA" : NOLA=0
+  For I=[M]PTV(NOL) To [M]PTF(NOL)
+   If [M:VT2]TBQTY(I)<>arr([M:VT2]TBQTY(I),AROQTE)
+    CHPIMP = "QTYANA" : Gosub SETLIB
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-"UOM("+num$(NOL)+")"-CHPIMPLIB-":"-num$([M:VT2]TBQTY(I))-[M]UOM(NOL)-mess(83,123,1),1) From GESECRAN
+    OKPYH = 1
+   Endif
+   If [M:VT2]TBAMT(I)<>arr([M:VT2]TBAMT(I),ARODEV)
+    CHPIMP = "AMTANA" : Gosub SETLIB
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-"CURLIN("+num$(NOL)+")"-CHPIMPLIB-":"-num$([M:VT2]TBAMT(I))-[M]CURLIN(NOL)-mess(83,123,1),1) From GESECRAN
+    OKPYH = 1
+   Endif
+   For J=1 To GNBTYPLED
+    [L]ACC = evalue("[M]ACC"+num$(J)+"("+num$(NOL)+")")
+    If [L]ACC<>"" & !instr(1,[L]ACC,"x")
+     [L]TLED = GTYPLED(J) : Gosub LECLED From SUBPAY3
+     For AX=1 To GOPTCANA
+      XCRITERE = evalue("[M:VT2]TBCCE"+num$(AX)+"("+num$(I)+")")
+       Call CONTCCE(XCRITERE,[L]LED,GAXE(AX),[M]FCYLIN(NOL),[M]ACCDAT,[L]ACC,GAXE,"[M:VT2]TBCCE#",I) From CPTCNT
+      If mkstat
+       CHPIMP = "CCE#" : Gosub SETLIB
+       Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-XCRITERE-GMESSAGE,1) From GESECRAN
+       GMESSAGE="" : mkstat=0 : OKPYH = 1 : Break
+      Endif
+     Next
+    Endif
+   Next
+   NOLA+=1
+  Next
+  CHPIMPTYP="PYD"
+ Elsif [M]DSP(NOL)<>""
+  Call CONTDSP([M]DSP(NOL),[M]FCYLIN(NOL),[M]ACCDAT) From SUBGA1
+  If mkstat
+   CHPIMP = "DSP" : Gosub SETLIB
+   Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]DSP(NOL)-GMESSAGE,1) From GESECRAN
+   mkstat=0 : GMESSAGE="" : OKPYH = 1
+  Else
+   [M:VTL]TOTREP=[M]AMTLIN(NOL) : [M:VTL]QTOTREP=[M]QTYLIN(NOL)
+   Call LECTURE("TCU",[M]CURLIN(NOL),"") From CONTOBJ
+   Gosub SETCHPLST From SUBPAY3
+   Call CHARGE_VTE_STR([M]DSP(NOL),[M]UOM(NOL),[M]LSTLED(NOL),[M]LSTACC(NOL),[M]LSTAXE) From VENTILE
+   If [M]AMTLIN(NOL)<>sum([M:VTL]AMT(0..[M:VTL]BAS-1))
+    CHPIMP = "AMTLIN" : Gosub SETLIB : # Répartition déséquilibrée
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]AMTLIN(NOL))-"<>"-num$(sum([M:VTL]AMT(0..[M:VTL]BAS-1)))-mess(28,106,1),1) From GESECRAN
+    OKPYH = 1
+   Elsif [M]QTYLIN(NOL)<>sum([M:VTL]QTY(0..[M:VTL]BAS-1))
+    CHPIMP = "QTYLIN" : Gosub SETLIB : # Répartition déséquilibrée
+    Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]QTYLIN(NOL))-"<>"-num$(sum([M:VTL]QTY(0..[M:VTL]BAS-1)))-mess(28,106,1),1) From GESECRAN
+    OKPYH = 1
+   Else
+    Call CONTVENT([M]FCYLIN(NOL),[M]ACCDAT) From SAIVENTILE
+    If mkstat
+     CHPIMP = "DSP" : Gosub SETLIB
+     Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-[M]DSP(NOL)-GMESSAGE,1) From GESECRAN
+     GMESSAGE="" : mkstat=0 : OKPYH = 1
+    Endif
+   Endif
+  Endif
+ Endif
+
+Next NOL
+
+K=1
+If dim([M:PAY1]NBLIG)>0
+     SVGNB = [M:PAY1]NBLIG
+Elsif dim([M:PAY2]NBLIG)>0
+     SVGNB = [M:PAY2]NBLIG
+Elsif dim([M:PAY3]NBLIG)>0
+     SVGNB = [M:PAY3]NBLIG
+Endif
+MT=sum([M]AMTLIN2(0..SVGNB-1))
+If MT<=0 : # Montant nul
+ # Règlement déséquilibré : Lignes = MT CUR
+ Call ECR_TRACE(mess(24,117,1)-":"-mess(7,105,1)-"="-num$(MT)-[M]CUR,1) From GESECRAN
+ OKPYH = 1 : K=0
+Elsif MT<>[M]AMTCUR
+ If [M]AMTCUR<>0
+  # Règlement déséquilibré : Entête = AMTCUR CUR, Lignes = MT CUR
+  Call ECR_TRACE(mess(24,117,1)-":"-mess(62,105,1)-":"-num$([M]AMTCUR)-[M]CUR+","
+&               -mess(7,105,1)-":"-num$(MT)-[M]CUR,1) From GESECRAN
+  OKPYH=1 : K=0
+ Else
+  [M]AMTCUR=MT
+ Endif
+Endif
+
+If [M]BAN<>"" & [M]CUR=[M]CURBAN : [M]AMTBAN=[M]AMTCUR : K=0
+Elsif [F:TPY]DACAMTBAN=3 : [M]AMTBAN=0
+Endif
+
+If [M]AMTBAN<0
+ CHPIMP = "AMTBAN" : Gosub SETLIB
+ Call ECR_TRACE(mess(32,126,1)-CHPIMP-CHPIMPLIB-":"-num$([M]AMTBAN)-mess(83,123,1),1) From GESECRAN
+ OKPYH = 1
+Elsif [M]AMTBAN<>0 & K
+ Call LECTURE("TCU",[M]CURBAN,"") From CONTOBJ
+ ARODEV=[F:TCU]CURRND
+ If ARODEV<>0 & [M]AMTBAN<>arr([M]AMTBAN,ARODEV)
+  CHPIMP = "AMTBAN" : Gosub SETLIB
+  Call ECR_TRACE(mess(32,126,1)-CHPIMP-"CUR"-CHPIMPLIB-":"-num$([M]AMTBAN)-[M]CUR-mess(83,123,1),1) From GESECRAN
+  OKPYH = 1
+ Elsif [M]PRCAMTCNV>0
+  Call CONVERT([M]CUR,[M]CURBAN,[M]CURCPY,[F:TPY]RATTYP,[M]ACCDAT,[M]AMTCUR,MT,STATX) From TRTDEV
+  If !STATX & abs([M]AMTBAN-MT)>abs(MT*[M]PRCAMTCNV/100)
+   CHPIMP = "AMTBAN" : Gosub SETLIB
+   Call ECR_TRACE(CHPIMP-CHPIMPLIB-":"-num$([M]AMTBAN)-[M]CURBAN-"<-"-num$([M]AMTCUR)-[M]CUR,0) From GESECRAN
+   OKPYH = 1
+  Endif
+ Endif
+Endif
+
+If dim([M:PAY1]NBLIG)>0
+ SVGNB = [M:PAY1]NBLIG
+Elsif dim([M:PAY2]NBLIG)>0
+ SVGNB = [M:PAY2]NBLIG
+Elsif dim([M:PAY3]NBLIG)>0
+ SVGNB = [M:PAY3]NBLIG
+Endif
+Local Libelle FLG(SVGNB)
+For NOL=0 To SVGNB-1
+ If !FLG(NOL) & [M]DUDNUM(NOL)<>0
+  Call LEC_CDA_LEG([F:CPY]LEG,[M]DENCOD(NOL)) From CPTLEC
+  If [F:CDA]AMTMAX<>0 | [F:CDA]PRCMAX<>0
+   Read [DUD]DUD1 = [M]DUDNUM(NOL);[M]DUDLIG(NOL)
+   If fstat=0 : FLG(NOL)=2 : MT2=[M]AMTLIN(NOL) : Endif
+  Endif
+  If !FLG(NOL) : FLG(NOL)=1 : Endif
+  For J=NOL+1 To SVGNB-1
+   If [M]DENCOD(J)=[M]DENCOD(NOL)
+    If FLG(NOL)=1 : FLG(NOL)=1
+    Elsif [M]DUDNUM(J)=[M]DUDNUM(NOL) & [M]DUDLIG(J)=[M]DUDLIG(NOL)
+     MT2+=[M]AMTLIN(J) : FLG(J)=2
+    Endif
+   Endif
+  Next J
+  If FLG(NOL)=2
+   K=0
+   If [F:CDA]PRCMAX<>0
+    MT=[F:DUD]AMTCUR*[F:CDA]PRCMAX/100
+    Call ARRDEV(MT,[F:DUD]CUR) From TRTDIV
+    If MT2>MT : K=1 : Endif
+   Endif
+   If !K & [F:CDA]AMTMAX<>0
+    Call CONVERT([F:DUD]CUR,GCURSHR,[M]CURCPY,[F:TPY]RATTYP,[M]ACCDAT,MT2,MT,STATX) From TRTDEV
+    If !STATX & MT>[F:CDA]AMTMAX : K=2 : Endif
+   Endif
+   If K
+    GMESSAGE=mess([M]IPTTYP(NOL),659,1)
+    If [M]IPTTYP(NOL)=3 : GMESSAGE-=[M]VCRTYP(NOL) : Endif
+    # Imputation
+    GMESSAGE-=[M]VCRNUM(NOL)-"-"-mess(23,117,1)-[M]DENCOD(NOL)-">"
+    Case K
+     When 1 : GMESSAGE-=num$([F:CDA]PRCMAX)+" %"
+              GMESSAGE-="("+num$(MT)-[F:DUD]CUR+")"
+     When 2 : GMESSAGE-=num$([F:CDA]AMTMAX)-GSYSCUR
+              Call CONVERT(GSYSCUR,[F:DUD]CUR,[M]CURCPY,[F:TPY]RATTYP,[M]ACCDAT,[F:CDA]AMTMAX,MT,STATX) From TRTDEV
+              If STATX : GMESSAGE-="("+num$(MT)-[F:DUD]CUR+")" : Endif
+    Endcase
+    Call ECR_TRACE(GMESSAGE,1) From GESECRAN
+   Endif
+  Endif
+ Endif
+Next NOL
+# Bader: 2017-10-09 X3-56107 begin (take over analytical dimensions)
+If dim(GDEPVATLIN)>0 : Kill GDEPVATLIN : Endif
+# Bader: 2017-10-09 X3-56107 end
+#Issue 75458 – 2018-02-07  by MADOR - FIFO Payments Flow
+If func AFNC.ACTIV("FIFRC") & [M]BAN<>""
+    If func FIFOCONVAR_CSTD.FLDFIFCP_CTL([M]BAN,[M]ACCDAT)
+      If func FIFOCONVAR_CSTD.IS_FIFO_EXIST([M]BAN,[M]ACCDAT) = 1
+         Call ECR_TRACE(mess(18,7708,1),1) From GESECRAN : OKPYH = 1
+      Endif
+    Endif
+Endif
+#Issue end
+Return
+
+$SET_SNS
+If [M]SNS=0 & [F:TPY]SNS<3 : [M]SNS=[F:TPY]SNS : Endif
+Return
+
+
+#####################################
+
+$SETLIB
+If CHPIMP="BAN"
+ If [F:TPY]BANCSH=2 : CHPIMPLIB = mess(2,653,1) : # Caisse
+ Else               : CHPIMPLIB = mess(1,653,1) : # Banque
+ Endif
+Elsif CHPIMP="CCE#"
+ CHPIMP="CCE"+num$(AX)
+ CHPIMPLIB = mess(AX,601,1)
+Else
+ Case CHPIMPTYP
+  When "PYH"   : Read [ATZ]CODZONE = "PAYMENTH";CHPIMP
+  When "PYD"   : Read [ATZ]CODZONE = "PAYMENTD";CHPIMP
+  When "PYA"   : Read [ATZ]CODZONE = "PAYMENTA";CHPIMP
+  When Default : CHPIMPLIB="" : Return
+ Endcase
+ If !fstat
+  Call TEXTE([F:ATZ]NOCOURT,CHPIMPLIB) From OBJDIV
+ Else
+  CHPIMPLIB=""
+ Endif
+Endif
+Case CHPIMPTYP
+ When "PYD" : CHPIMP += "("+num$(NOL)+")"
+ When "PYA" : CHPIMP += "("+num$(NOLA)+")"
+Endcase
+Return
+
+##AUREN.INI VALIDACIÓN DE PAGO
+#* Valida Pagos X3
+#*
+#*!
+Subprog XARG_PAYCPT(PPAYNUM,PDAT)
+Value Char PPAYNUM
+Value Date PDAT
+Local Char VALBOUT(30)
+Local Char PARAM(250)(1..3)
+
+If !clalev([PYH]) : Local File PAYMENTH [PYH]   : Endif
+If !clalev([TPY]) : Local File TABPAYTYP [TPY]  : Endif
+If !clalev([CPY]) : Local File COMPANY [CPY]    : Endif
+
+Local Mask DATCPT [DIA]
+
+  PARAM(3) = PPAYNUM : # Numero de Pago
+  PARAM(2) = "3" : # Numero de Pago
+
+  Read [PYH]PYH0 = PARAM(3)
+  Call LECTURE("CPY",[F:PYH]CPY,"") From CONTOBJ
+  Call LEC_TPY_LEG([F:CPY]LEG,[F:PYH]PAYTYP) From CPTLEC
+
+
+ # Definir el parámetro 1. Tipo de Contabilización
+  If [F:PYH]STA<3 & [F:TPY]STA3=2 & ([F:TPY]STA2<>2 | [F:PYH]STA>=2)
+   PARAM(1)="3"
+  Elsif [F:PYH]STA<9 & [F:TPY]STA9=2 & [F:PYH]FRMNUM="" & [F:TPY]STA5<>2 & [F:TPY]STA7<>2
+&     & ([F:TPY]STA3<>2 | [F:PYH]STA>=3) & ([F:TPY]STA2<>2 | [F:PYH]STA>=2)
+&     & [F:PYH]BAN<>""
+  PARAM(1)="9"
+  Else PARAM(1)="0"
+  Endif
+
+
+  If PARAM(1)<>"0"
+    Gosub INIT      From PAYCPT
+    Gosub INIT_DIA  From PAYCPT
+    If PDAT<>[0/0/0]
+      [M:DIA]DAT1=PDAT
+     Else
+      [M:DIA]DAT1=[PYH]ACCDAT
+    Endif
+    Gosub EXEC      From PAYCPT
+
+    Close Mask [DIA]
+  Endif
+End
+#AUREN.FIN

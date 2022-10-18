@@ -1,0 +1,54 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$ 
+############################################################################
+# Script name : CNSBALSPE
+# Description : Consulta Balance
+# Module      : Contabilidad
+# Version     : 1
+# Created by  : Miguel Llaja
+# Company     : Auren España
+# Created date: 27/06/2022
+############################################################################
+# ID01 - 02/08/2022 - J.Rodriguez - Se agrega campo "descripción corta"
+#
+############################################################################
+
+$ACTION
+#If GUSER="ADMIN" Then : Infbox ACTION: Endif
+Case ACTION
+  When "AV_AFFICHE"          : Gosub AV_AFFICHE
+
+  When Default
+Endcase
+
+Return
+
+$AV_AFFICHE
+Local Integer IX,JX,KX
+JX=[M:BAL2]NBLIG-1
+KX=0
+
+For IX=0 To [M:BAL2]NBLIG-1
+  Gosub DES_CORTA #ID01
+ If [M:BAL2]FINDEBLED(IX) = 0 and [M:BAL2]FINCDTLED(IX) = 0 and [M:BAL1]ZSAL=2
+  Dela (IX) [M:BAL2]NBLIG
+  IX -=1
+  [M:BAL2]NBLIG-=1
+ Endif
+ If KX = JX : Break Endif
+ KX+=1
+Next
+Return
+
+############################################################################
+$DES_CORTA  #ID01
+############################################################################
+If !clalev([F:BPR]) : Local File BPARTNER [F:BPR] : Endif
+
+Case TYPBAL
+  When 1
+    Call LECTEXTRA([M:BAL2]ZINTITSHO(IX),"GACCOUNT","SHOTRA",[M:BAL1]COA,[M:BAL2]COMPTE(IX)) From ATEXTRA
+  When 2
+     Read [BPR]BPR0 = [M:BAL2]COMPTE(IX)
+     If !fstat : [M:BAL2]ZINTITSHO(IX) = [F:BPR]BPRSHO : Endif
+Endcase
+Return

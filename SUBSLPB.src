@@ -1,0 +1,765 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+########################################################################
+# Impression des étiquettes de stocks (suite 2)                        #
+# -------------------------------------------------------------------- #
+# Traitements sur champ "Call" de l'écran STOLBEIMP                    #
+# Action  : STKLBEIMP (GTRAITE)                                        #
+# Fenêtre : ISTOLBE                                                    #
+# Traitement de l'action : SUBSLPA                                     #
+# Gosub autres           : SUBSLPB                                     #
+# -------------------------------------------------------------------- #
+# Action de sélection du numéro de pièce : SELVCR                      #
+# -------------------------------------------------------------------- #
+#  SUBPROG                                                             #
+#      RELOAD : Chargement des mouvements                              #
+#      PRINT  : Impression                                             #
+########################################################################
+
+###################################################################################################
+#001 - AMG 17/06/2022- AUREN - SPE-018-03 - Desarrollo etiquetas modificamos cuando se imprime cada
+#      etiqueda desde Stocks > Etiqueta
+###################################################################################################
+
+$ACTION
+Case ACTION
+    When "SEL_TABLE" :
+        Case TABLE
+            When "SELVCR" : Gosub SELVCR
+        Endcase
+    When "VERF_TABLE" :
+        Case TABLE
+            When "SELVCR" : Gosub VERF_SELVCR
+        Endcase
+Endcase
+Return
+
+###############################################################################
+# RELOAD : Recharge le tableau de SLP
+###############################################################################
+Subprog RELOAD
+Local Char ETAT, ETAT2
+Local Integer LSTJFLG # Indique si le filtre est fait sur STOJOU ou sur le Link
+Local Char LCRIT(250)(5)
+Local Integer LNBCRIT
+Local Char    LMABR
+Local Integer LNBLIG
+Local Integer I,J
+Local Char    LETAT, LPRN
+nolign = 0
+Effzo [M:SLP]15
+If [M:SLP]ABRDOC=""
+    Raz LMABR
+    LNBLIG = 0
+Else
+    LMABR = "[M:"+[M:SLP]ABRDOC+"]"
+    LNBLIG = evalue(LMABR+[M:SLP]WZONNBLIG)-1
+Endif
+
+
+Local Char FILSUP(250)                  # hcb 040505 30101
+FILSUP= "1=1"                           # hcb 040505 30101
+GPOINT="BEFFILSPR"                      # hcb 040505 30101
+Gosub  ENTREE From EXEFNC               # hcb 040505 30101
+
+For I=0 To LNBLIG
+    If LMABR<>""
+        If !evalue([M:SLP]WMSKFIL)
+            Goto NEXTI
+        Endif
+        [M:SLP]LBEVCRTYP = evalue(LMABR+[M:SLP]WZONVCRTYP)
+        [M:SLP]VCRNUMSTR = evalue(LMABR+[M:SLP]WZONVCRNUM)
+        [M:SLP]VCRNUMEND = [M:SLP]VCRNUMSTR
+        [M:SLP]FILVCRLIN = evalue(LMABR+[M:SLP]WZONVCRLIN)
+    Endif
+    Case [M:SLP]LBEVCRTYP
+        When 6,9,12,13,15,16,19,18,26,28,29,32,31,35:         # hcb 61166 : # bug 79002 ajout 12
+            Raz LNBCRIT
+            If [M:SLP]LBEVCRTYP =26
+                LCRIT(LNBCRIT) = "STOFCY=[M:SLP]STOFCY&VCRTYP=12&UPDCOD=2&REGFLG=1&QTYSTU>0"
+            #--- Bug 79002
+            Elsif [M:SLP]LBEVCRTYP = 12
+                LCRIT(LNBCRIT) = "STOFCY=[M:SLP]STOFCY&VCRTYP=[M:SLP]LBEVCRTYP&UPDCOD=2&REGFLG=1&QTYSTU>0&TRSTYP=19"
+            #---
+            Else
+                LCRIT(LNBCRIT) = "STOFCY=[M:SLP]STOFCY&VCRTYP=[M:SLP]LBEVCRTYP&UPDCOD=2&REGFLG=1&QTYSTU>0"
+            Endif
+            LNBCRIT += 1
+            If [M:SLP]LBEVCRTYP=29
+                LCRIT(LNBCRIT) = " & QTYSTU>0 "
+                LNBCRIT += 1
+            Endif
+            If [M:SLP]VCRNUMSTR <> ""
+                # Issue X3-196970 - 2020-05-28 by MAE:pr les inventaires,
+                #la sélection doit se faire sur le VCRNUM et pas le VCRNUMORI
+                #If [M:SLP]LBEVCRTYP = 9                                # hcb 61166
+                #  LCRIT(LNBCRIT)  = "&VCRNUMORI>=[M:SLP]VCRNUMSTR"    # hcb 61166
+                #  LCRIT(LNBCRIT) += "&VCRNUMORI<=[M:SLP]VCRNUMEND"    # hcb 61166
+                #Else                                                   # hcb 61166
+                   LCRIT(LNBCRIT)  = "&VCRNUM>=[M:SLP]VCRNUMSTR"
+                   LCRIT(LNBCRIT) += "&VCRNUM<=[M:SLP]VCRNUMEND"
+                #Endif                                                  # hcb 61166
+                LNBCRIT += 1
+            Endif
+            If [M:SLP]FILVCRLIN > 0
+                #MAE, bg77862
+                #LCRIT(LNBCRIT) += "&VCRLIN=[M:SLP]FILVCRLIN"
+                LCRIT(LNBCRIT) = "&VCRLIN=[M:SLP]FILVCRLIN"
+                LNBCRIT += 1
+            Endif
+            If [M:SLP]IPTDATSTR <> "000000"
+                LCRIT(LNBCRIT)  = "&IPTDAT>=[M:SLP]IPTDATSTR"
+                LCRIT(LNBCRIT) += "&IPTDAT<=[M:SLP]IPTDATEND"
+                LNBCRIT += 1
+            Endif
+#                                                          # hcb 61166  deb
+            If [M:SLP]LBEVCRTYP = 9
+               If clalev([LNK])
+                  Close Local File [LNK]
+               Endif
+               If [M:SLP]TCLCODSTR<>"" | [M:SLP]ITMREFSTR<>""
+                   If [M:SLP]TCLCODSTR<>""
+                       LCRIT(LNBCRIT)  = "&[ITM]TCLCOD>=[M:SLP]TCLCODSTR"
+                       LCRIT(LNBCRIT) += "&[ITM]TCLCOD<=[M:SLP]TCLCODEND"
+                       LNBCRIT += 1
+                   Endif
+                   If [M:SLP]ITMREFSTR<>""
+                      LCRIT(LNBCRIT)  = "&[ITM]ITMREF>=[M:SLP]ITMREFSTR"
+                      LCRIT(LNBCRIT) += "&[ITM]ITMREF<=[M:SLP]ITMREFEND"
+                      LNBCRIT += 1
+                   Endif
+                   Link [STJ] With [CUD]CUD0=VCRNUMORI;VCRNUM;VCRLIN,[ITM]ITM0=ITMREF
+&                             As [LNK]
+&                             Where evalue(LCRIT)
+&                                       & [CUD]CUNLISSTA=4 & [CUD]STOCOU=0 & [CUD]QTYSTUNEW > 0
+&                                       & [STJ]TRSTYP=13
+&                                       & evalue(FILSUP)
+&                             Order By Key STJ1
+                   Raz LSTJFLG
+               Else
+                   Link [STJ] With [CUD]CUD0=VCRNUMORI;VCRNUM;VCRLIN
+&                             As [LNK]
+&                             Where evalue(LCRIT)
+&                                       & [CUD]CUNLISSTA=4 & [CUD]STOCOU=0 & [CUD]QTYSTUNEW > 0
+&                                       & [STJ]TRSTYP=13
+&                                       & evalue(FILSUP)
+&                             Order By Key STJ1
+                   Raz LSTJFLG
+               Endif
+            Else
+#                                                          # hcb 61166  fin
+               If [M:SLP]TCLCODSTR<>"" | [M:SLP]ITMREFSTR<>""
+                   If [M:SLP]TCLCODSTR<>""
+                       LCRIT(LNBCRIT)  = "&[ITM]TCLCOD>=[M:SLP]TCLCODSTR"
+                       LCRIT(LNBCRIT) += "&[ITM]TCLCOD<=[M:SLP]TCLCODEND"
+                       LNBCRIT += 1
+                   Endif
+                   If [M:SLP]ITMREFSTR<>""
+                      LCRIT(LNBCRIT)  = "&[ITM]ITMREF>=[M:SLP]ITMREFSTR"
+                      LCRIT(LNBCRIT) += "&[ITM]ITMREF<=[M:SLP]ITMREFEND"
+                      LNBCRIT += 1
+                   Endif
+                   If clalev([LNK])
+                      Close Local File [LNK]
+                   Endif
+
+                   Link [STJ] With [ITM]ITM0=ITMREF
+&                             As [LNK]
+&                             Where evalue(LCRIT) & evalue(FILSUP)
+&                             Order By Key STJ1
+                   Raz LSTJFLG
+               Else
+                   If [M:SLP]ABRDOC="SSL1"
+                       Link [STJ] With [STC]STC0=STOFCY;LOC
+&                                 As [LNK]
+&                                 Where evalue(LCRIT) & [STC]LOCCAT=1 & evalue(FILSUP)
+&                                 Order By Key STJ1
+                       Raz LSTJFLG
+                   Else
+                       If clalev([LNK])
+                          Close Local File [LNK]
+                       Endif
+                       Local File STOJOU [LNK]
+                       Filter [F:LNK] Where evalue(LCRIT) & evalue(FILSUP)
+&                                     Order By Key STJ1
+                       LSTJFLG=1
+                   Endif
+               Endif
+            Endif                                          # hcb 61166
+
+            For [LNK]
+                If LSTJFLG
+                    Read [STJ]STJ0=[F:LNK]STOFCY;[F:LNK]UPDCOD;[F:LNK]ITMREF;[F:LNK]IPTDAT;[F:LNK]MVTSEQ;[F:LNK]MVTIND
+#                    [F:STJ] = [F:LNK]
+                Endif
+                If [F:ITM]ITMREF <> [F:STJ]ITMREF
+                    Read [F:ITM]ITM0 = [F:STJ]ITMREF
+                    If fstat : Raz [F:ITM] : Endif
+                Endif
+                If nolign = dim([M:SLP]LBENBR) : Break : Endif
+
+
+                #--- Traitement particulier si impression VT
+                If GVTMOD=1
+                   Raz LETAT, LPRN
+                   # Récupération format étiquette et destination
+                   Call ALIM_PRNETI([F:STJ]ITMREF,[F:STJ]PCU,LETAT,LPRN) From STKADC
+                   # Contrôle de la destination
+                   If LPRN<>"" & LETAT<>""
+                      Call AIMCONT(LPRN,LETAT,GBATCH) From IMPRIME
+                      If mkstat : Raz LPRN, mkstat : Endif
+                   Endif
+                   # Format étiquette et destination trouvés --> impression
+                   # sinon pas d'impression car en VT, on ne peut pas les saisir
+                   If LETAT<>"" & LPRN<>""
+                      nolign += 1
+                      [M:SLP] = [F:STJ]
+                      [M:SLP]TRT(nolign-1)    = 1+!([F:STJ]PRNFLG=2)
+                      [M:SLP]LBEFMT(nolign-1) = LETAT
+                      [M:SLP]PRT(nolign-1)    = LPRN
+                      #--- Issue X3-258336 by TS
+                      [M:SLP]GESZPL(nolign-1) = [F:ARP]GESZPL
+                      [M:SLP]CODZPL(nolign-1) = [F:ARP]CODZPL
+                      #---
+                      [M:SLP]SERIMP(nolign-1) = [F:AIM]PRTSRV
+                      [M:SLP]DEFIMP(nolign-1) = [F:AIM]PRTNAM
+                      If [M:SLP]LBENBR(nolign-1) = 0
+                         If int([M:SLP]QTYPCU(nolign-1))=[M:SLP]QTYPCU(nolign-1)
+                            [M:SLP]LBENBR(nolign-1) = [M:SLP]QTYPCU(nolign-1)
+                         Else
+                            [M:SLP]LBENBR(nolign-1) = int([M:SLP]QTYPCU(nolign-1))+1
+                        Endif
+                      Endif
+                      If [M:SLP]LBEVCRTYP = 26 : [M:SLP]LBENBR(nolign-1) = 1 : Endif
+                   #                              # hcb 115648 deb
+                      GPOINT="ALISCRSLP"
+                      Gosub  ENTREE From EXEFNC
+                   #                              # hcb 115648 fin
+
+                   #--- Bug 67929
+                   # Etat ou destination non renseigné
+                   Else
+                      If LPRN=""
+                         GMESSAGE=mess(501,9137,1)
+                      Else
+                         GMESSAGE=mess(100,187,1)
+                      Endif
+                      #--- Issue X3-227166 by TS pour générer un warning si GAXTREEM
+                      #Call ERREUR(GMESSAGE) From GESECRAN
+                      If GWEBSERV & GAXTREEM
+                        Call MESSAGE(GMESSAGE) From GESECRAN
+                      Else
+                        Call ERREUR(GMESSAGE) From GESECRAN
+                      Endif
+                      Raz GMESSAGE
+                      #---
+
+                   #---
+                   Endif
+                Else
+                #---
+                   nolign  += 1
+                   [M:SLP] = [F:STJ]
+                   [M:SLP]TRT(nolign-1) = 1+!([F:STJ]PRNFLG=2)
+                   If [M:SLP]LBENBR(nolign-1) = 0
+                      If int([M:SLP]QTYPCU(nolign-1))=[M:SLP]QTYPCU(nolign-1)
+                         [M:SLP]LBENBR(nolign-1) = [M:SLP]QTYPCU(nolign-1)
+                      Else
+                         [M:SLP]LBENBR(nolign-1) = int([M:SLP]QTYPCU(nolign-1))+1
+                      Endif
+                   Endif
+                   If [M:SLP]LBEVCRTYP = 26 : [M:SLP]LBENBR(nolign-1) = 1 : Endif
+                   If [M:SLP]LBEFMT(nolign-1) = ""
+                      J = find([F:STJ]PCU,[F:ITM]PCU(0..(dim([F:ITM]PCU)-1)))
+                      If J
+                         [M:SLP]LBEFMT(nolign-1) = [F:ITM]LBEFMT(J-1)
+                      Else
+                         If [F:STJ]STU = [F:ITM]STU
+                            [M:SLP]LBEFMT(nolign-1) = [F:ITM]STULBEFMT
+                         Endif
+                      Endif
+                   Endif
+                   If [M:SLP]LBEFMT(nolign-1) <> ""
+                      #--- Issue X3-258336 by TS
+                      Call C_LBEFMT([M:SLP]LBEFMT(nolign-1)) From SUBSLP
+                      #---
+                      Call AM_LBEFMT([M:SLP]LBEFMT(nolign-1)) From SUBSLP
+                   Endif
+                   # Dem 37991 - TS le 18.10.06
+                   GPOINT="ALISCRSLP"
+                   Gosub  ENTREE From EXEFNC
+#                  If nolign > 99 : Break : Endif   # hcb 45289   test deja fait au-dessus
+                Endif
+            Next
+            Filter [F:LNK]
+        When 10:
+            Raz LNBCRIT
+            LCRIT(LNBCRIT) = "MFGFCY=[M:SLP]STOFCY"
+            LNBCRIT += 1
+            If [M:SLP]VCRNUMSTR <> ""
+                LCRIT(LNBCRIT)  = "&MFGNUM>=[M:SLP]VCRNUMSTR"
+                LCRIT(LNBCRIT) += "&MFGNUM<=[M:SLP]VCRNUMEND"
+                LNBCRIT += 1
+            Endif
+            If [M:SLP]IPTDATSTR <> "000000"
+                LCRIT(LNBCRIT)  = "&ENDDAT>=[M:SLP]IPTDATSTR"
+                LCRIT(LNBCRIT) += "&ENDDAT<=[M:SLP]IPTDATEND"
+                LNBCRIT += 1
+            Endif
+            If [M:SLP]TCLCODSTR<>""
+                LCRIT(LNBCRIT)  = "&[ITM]TCLCOD>=[M:SLP]TCLCODSTR"
+                LCRIT(LNBCRIT) += "&[ITM]TCLCOD<=[M:SLP]TCLCODEND"
+                LNBCRIT += 1
+            Endif
+            If [M:SLP]ITMREFSTR<>""
+                LCRIT(LNBCRIT)  = "&[ITM]ITMREF>=[M:SLP]ITMREFSTR"
+                LCRIT(LNBCRIT) += "&[ITM]ITMREF<=[M:SLP]ITMREFEND"
+                LNBCRIT += 1
+            Endif
+            Link [MFI] With [ITM]ITM0=ITMREF As [LNK] Where evalue(LCRIT) & evalue(FILSUP)
+            For [LNK]
+                If nolign = dim([M:SLP]LBENBR) : Break : Endif     # hcb 45289
+
+                #--- Traitement particulier si impression VT
+                If GVTMOD=1
+                   Raz LETAT, LPRN
+                   # Récupération format étiquette et destination
+                   Call ALIM_PRNETI([F:STJ]ITMREF,[F:STJ]PCU,LETAT,LPRN) From STKADC
+                   # Contrôle de la destination
+                   If LPRN<>"" & LETAT<>""
+                      Call AIMCONT(LPRN,LETAT,GBATCH) From IMPRIME
+                      If mkstat : Raz LPRN, mkstat : Endif
+                   Endif
+                   # Format étiquette et destination trouvés --> impression
+                   # sinon pas d'impression car en VT, on ne peut pas les saisir
+                   If LETAT<>"" & LPRN<>""
+                      nolign += 1
+                      [M:SLP] = [F:STJ]
+                      [M:SLP]TRT(nolign-1)    = 1+!([F:STJ]PRNFLG=2)
+                      [M:SLP]LBEFMT(nolign-1) = LETAT
+                      [M:SLP]PRT(nolign-1)    = LPRN
+                      #--- Issue X3-258336 by TS
+                      [M:SLP]GESZPL(nolign-1) = [F:ARP]GESZPL
+                      [M:SLP]CODZPL(nolign-1) = [F:ARP]CODZPL
+                      #---
+                      [M:SLP]SERIMP(nolign-1) = [F:AIM]PRTSRV
+                      [M:SLP]DEFIMP(nolign-1) = [F:AIM]PRTNAM
+                      If [M:SLP]LBENBR(nolign-1) = 0
+                         If int([M:SLP]QTYPCU(nolign-1))=[M:SLP]QTYPCU(nolign-1)
+                            [M:SLP]LBENBR(nolign-1) = [M:SLP]QTYPCU(nolign-1)
+                         Else
+                            [M:SLP]LBENBR(nolign-1) = int([M:SLP]QTYPCU(nolign-1))+1
+                        Endif
+                      Endif
+                      If [M:SLP]LBEVCRTYP = 26 : [M:SLP]LBENBR(nolign-1) = 1 : Endif
+                   #                              # hcb 115648 deb
+                      GPOINT="ALISCRSLP"
+                      Gosub  ENTREE From EXEFNC
+                   #                              # hcb 115648 fin
+
+                   #--- Bug 67929
+                   # Etat ou destination non renseigné
+                   Else
+                      If LPRN=""
+                         GMESSAGE=mess(501,9137,1)
+                      Else
+                         GMESSAGE=mess(100,187,1)
+                      Endif
+                      #--- Issue X3-227166 by TS pour générer un warning si GAXTREEM
+                      #Call ERREUR(GMESSAGE) From GESECRAN
+                      If GWEBSERV & GAXTREEM
+                        Call MESSAGE(GMESSAGE) From GESECRAN
+                      Else
+                        Call ERREUR(GMESSAGE) From GESECRAN
+                      Endif
+                      Raz GMESSAGE
+                      #---
+                   #---
+                   Endif
+                Else
+                #---
+                   nolign  += 1
+                   [M:SLP] = [F:MFI]
+                   [M:SLP]VCRNUM(nolign-1) = [F:MFI]MFGNUM
+                   [M:SLP]QTYSTU(nolign-1) = [F:MFI]EXTQTY
+                   [M:SLP]QTYPCU(nolign-1) = [F:MFI]UOMEXTQTY
+                   [M:SLP]PCU(nolign-1)    = [F:MFI]UOM
+                   [M:SLP]VCRLIN(nolign-1) = [F:MFI]MFGLIN
+                   [M:SLP]TRSTYP(nolign-1) = 5
+                   If [M:SLP]LBENBR(nolign-1) = 0
+                      If int([M:SLP]QTYPCU(nolign-1))=[M:SLP]QTYPCU(nolign-1)
+                         [M:SLP]LBENBR(nolign-1) = [M:SLP]QTYPCU(nolign-1)
+                      Else
+                         [M:SLP]LBENBR(nolign-1) = int([M:SLP]QTYPCU(nolign-1))+1
+                      Endif
+                   Endif
+                   If [M:SLP]LBEFMT(nolign-1) = ""
+                      J = find([F:MFI]UOM,[F:ITM]PCU(0..(dim([F:ITM]PCU)-1)))
+                      If J
+                         [M:SLP]LBEFMT(nolign-1) = [F:ITM]LBEFMT(J-1)
+                      Else
+                         If [F:MFI]UOM = [F:ITM]STU
+                            [M:SLP]LBEFMT(nolign-1) = [F:ITM]STULBEFMT
+                         Endif
+                      Endif
+                   Endif
+                   If [M:SLP]LBEFMT(nolign-1) <> ""
+                      #--- Issue X3-258336 by TS
+                      Call C_LBEFMT([M:SLP]LBEFMT(nolign-1)) From SUBSLP
+                      #---
+                      Call AM_LBEFMT([M:SLP]LBEFMT(nolign-1)) From SUBSLP
+                   Endif
+                   # Dem 37991 - TS le 18.10.06
+                   GPOINT="ALISCRSLP"
+                   Gosub  ENTREE From EXEFNC
+#                  If nolign > 99 : Break : Endif                   # hcb 45289
+                Endif
+            Next
+            Filter [LNK]
+    Endcase
+    [M:SLP]NBLIG = nolign
+    $NEXTI
+Next
+Affzo [M:SLP]15
+End
+
+###############################################################################
+# PRINT : Impression
+###############################################################################
+Subprog PRINT(PRET)
+Variable Integer PRET
+Raz PRET
+Local Integer I : Raz I
+#--- Issue X3-258336 by TS
+Local Integer J
+
+   #-- Recherche sur le tableau de la première ligne qui ne convient pas
+   #-- Si on trouve une ligne et que I=0 on sort du sigma
+    I = sigma(0,[M:SLP]NBLIG-1, (indcum+1)*(([M:SLP]TRT(indcum)=2)
+&          & (([M:SLP]LBEFMT(indcum)="") | ([M:SLP]PRT(indcum)=""&[M:SLP]DEFIMP(indcum)=""))
+&          & I=0 & sigma(I=1,1,1)))
+    If I>0
+        Call ERREUR(mess(48,184,1)-num$(I)-"("+mess(222,200,1)+","+mess(41,197,1)+","+mess(16,135,1)+")") From GESECRAN
+        PRET = 1
+        End
+    Endif
+
+# Tri du tableau selon imprimante,format
+Sorta [M:SLP]NBLIG [M:SLP]NBLIG
+&     Order By [M:SLP]DEFIMP(indice),[M:SLP]LBEFMT(indice),[M:SLP]VCRNUM(indice),
+&              [M:SLP]VCRLIN(indice),[M:SLP]MVTSEQ(indice)*-1,[M:SLP]MVTIND(indice)
+
+GPOINT="SORTASLP"
+Gosub  ENTREE From EXEFNC
+
+
+#001-AUREN >
+Local Integer Z
+Local Char ZNUMINI (250)
+Z=0
+ZNUMINI=''
+#001<
+
+Local Char TBPAR(10)(1..50),TBVAL(30)(1..50)
+For I = 0 To [M:SLP]NBLIG-1
+    Raz TBPAR, TBVAL
+    If [M:SLP]TRT(I)=2 & [M:SLP]LBENBR(I)<>0 & [M:SLP]LBEFMT(I)<>"" & [M:SLP]PRT(I)<>""
+        GWNUMREQ = uniqid([LBP])
+
+        #001- AUREN>
+        If Z=0 Then
+           Z=1
+           ZNUMINI=num$(GWNUMREQ)
+        Endif
+        #001<
+
+        Gosub REMPL_LBP
+        If GOK = 1
+            Raz GBIDI1    # Sinon ça plante quand on vient d'un document !!!!
+            #--- Issue X3-258336 by TS : si état ZPL on call ETAT autant de fois que d'étiquettes
+            If [M:SLP]GESZPL(I)=2 & [M:SLP]CODZPL(I)<>""
+              For J=1 To [M:SLP]LBENBR(I)
+                Call ETAT([M:SLP]LBEFMT(I),[M:SLP]PRT(I),GLANGUE,0,"",TBPAR,TBVAL) From AIMP3
+              Next J
+            Else
+
+            #001-AUREN>
+            #---
+#              Call ETAT([M:SLP]LBEFMT(I),[M:SLP]PRT(I),GLANGUE,0,"",TBPAR,TBVAL) From AIMP3
+            #--- Issue X3-258336 by TS
+            #001<
+
+            Endif
+            #---
+        Else
+            GOK = 1
+        Endif
+    Endif
+Next I
+
+
+##001-AUREN>
+If GOK=1 Then
+  Local Char SQLSENT(250)(1..5)
+    SQLSENT(1) = "SELECT RPTCOD_0, ZCOD_0  "
+    SQLSENT(2) = "FROM "+nomap+".LABELPRN "
+    SQLSENT(3) = "WHERE NUMREQ_0 >= '" + num$(ZNUMINI) + "' AND NUMREQ_0 <= '" + num$(GWNUMREQ) + "'"
+    SQLSENT(4) = "GROUP BY RPTCOD_0, ZCOD_0 "
+
+  For (Char RPTCOD_0, Char ZCOD_0) From "5" Sql SQLSENT(1..4) As [Y00]
+      TBPAR(2)  = "etat"                : TBVAL(2)  = RPTCOD_0
+      TBPAR(5)  = "znumdeb"             : TBVAL(5)  = num$(ZNUMINI)
+      TBPAR(6)  = "znumfin"             : TBVAL(6)  = num$(GWNUMREQ)
+      Call ETAT(RPTCOD_0,ZCOD_0,GLANGUE,0,"",TBPAR,TBVAL) From AIMP3
+  Next
+Endif
+##001<
+
+End
+
+
+###########################################################################
+$REMPL_LBP
+Local Integer J
+#On arrive ici pour chaque ligne du tableau
+Call DEBTRANS From GLOCK
+Trbegin [LBP],[STJ]
+
+# sauf si etiquettes de production
+If [M:SLP]LBEVCRTYP <> 10
+    Read [STJ]STJ0=[M:SLP]STOFCY;[M:SLP]UPDCOD(I);[M:SLP]ITMREF(I);[M:SLP]IPTDAT(I);[M:SLP]MVTSEQ(I);[M:SLP]MVTIND(I)
+    [F:STJ]PRNFLG = 2
+    Rewrite [STJ]
+Endif
+Raz [F:LBP]
+[F:LBP]USR    = GUSER
+[F:LBP]NUMREQ = GWNUMREQ
+[F:LBP]CREDAT = date$
+[F:LBP]CREUSR = GUSER
+
+GPOINT="MAJ_LBP" : Gosub ENTREE From EXEFNC
+
+Case [M:SLP]LBEVCRTYP
+     When 6,9,12,13,15,16,19,18,26,28,29,32,31,35:      # hcb 61166 : # Bug 79002 ajout 12
+        [F:LBP]RPTCOD = [M:SLP]LBEFMT(I)                # réintégration 9727
+        [F:LBP]STOFCY = [M:SLP]STOFCY
+        [F:LBP]UPDCOD = [M:SLP]UPDCOD(I)
+        [F:LBP]ITMREF = [M:SLP]ITMREF(I)
+        [F:LBP]IPTDAT = [M:SLP]IPTDAT(I)
+        [F:LBP]MVTSEQ = [M:SLP]MVTSEQ(I)
+        [F:LBP]MVTIND = [M:SLP]MVTIND(I)
+        #001-AUREN>
+        [F:LBP]ZCOD   = [M:SLP]PRT(I)
+        #001<
+        If [M:SLP]LBEVCRTYP = 15
+           [F:LBP]VCRTYP = 10
+           [F:LBP]VCRNUM = [M:SLP]VCRNUMORI(I)
+           [F:LBP]VCRLIN = [M:SLP]VCRLINORI(I)
+        Else
+           [F:LBP]VCRTYP = [M:SLP]LBEVCRTYP     # hcb 69586
+           [F:LBP]VCRNUM = [M:SLP]VCRNUM(I)     # hcb 69586
+           [F:LBP]VCRLIN = [M:SLP]VCRLIN(I)     # hcb 69586
+        Endif
+        #--- Issue X3-258336 by TS : si état ZPL on écrit un seul enregistrement dans LABELPRN
+        If [M:SLP]GESZPL(I)=2 & [M:SLP]CODZPL(I)<>""
+          [F:LBP]NUMLIG = 1
+          Write [F:LBP]
+          If fstat : GOK = 0 : Endif
+        Else
+        #---
+          For J = 1 To [M:SLP]LBENBR(I)
+            [F:LBP]NUMLIG = J
+            Write [F:LBP]
+            If fstat : GOK = 0 : Break : Endif
+          Next J
+        #--- Issue X3-258336 by TS
+        Endif
+        #---
+    When 10       :
+        [F:LBP]RPTCOD = [M:SLP]LBEFMT(I)
+        [F:LBP]VCRTYP = 10
+        [F:LBP]VCRNUM = [M:SLP]VCRNUM(I)
+        [F:LBP]VCRLIN = [M:SLP]VCRLIN(I)
+        #--- Issue X3-258336 by TS : si état ZPL on écrit un seul enregistrement dans LABELPRN
+        If [M:SLP]GESZPL(I)=2 & [M:SLP]CODZPL(I)<>""
+          [F:LBP]NUMLIG = 1
+          Write [F:LBP]
+          If fstat : GOK = 0 : Endif
+        Else
+        #---
+          For J = 1 To [M:SLP]LBENBR(I)
+            [F:LBP]NUMLIG = J
+            Write [F:LBP]
+            If fstat : GOK = 0 : Break : Endif
+          Next J
+        #--- Issue X3-258336 by TS
+        Endif
+        #---
+Endcase
+If GOK = 0 : Rollback : Else : Commit : Endif
+Return
+
+########################################################################
+# Sous programme de sélection d'une pièce dans le fichier des mouvements
+# LFCY = site de stockage
+# LVCR = Numéro de pièce
+# LTYP = Type de pièce                # réintégration 9727
+#######################################################################
+$SELVCR
+Local Char LVCR(GLONVCR) : LVCR = PARAM(1)
+Local Integer LTYP       : LTYP = val(PARAM(2))
+Global Char LFCY(GLONFCY) : LFCY = PARAM(3)    # hcb 41749
+
+Case LTYP :
+    When 6  : OBJET = "PTH"
+              If LFCY<>""
+                CRITERE(1)="[F:PTH]PRHFCY=LFCY"
+              Endif
+    When 9  : OBJET = "SNL"                                        # hcb 115180
+              If LFCY<>""
+#                CRITERE(1)="STOFCY=LFCY & CUNSSSSTA > 1"          # hcb 115180
+                CRITERE(1)="STOFCY=LFCY & CUNLISSTA <> 2"          # hcb 115180
+              Endif
+
+    When 10 : OBJET = "MFG"
+              If LFCY<>""
+                CRITERE(1)="MFGFCY=LFCY"
+              Endif
+    When 13 : OBJET = "SRH"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 15 : OBJET = "MTK"
+              If LFCY<>""
+                CRITERE(1)="MFGFCY=LFCY"
+              Endif
+    When 19 : OBJET = "SMR"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 28 : OBJET = "STQ"                          # hcb 41754
+              If LFCY<>""                            # hcb 41754
+                CRITERE(1)="STOFCY=LFCY"             # hcb 41754
+              Endif                                  # hcb 41754
+    When 29 : OBJET = "SCS"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 31 : OBJET = "BBY"                          # hcb 41754
+              If LFCY<>""                            # hcb 41754
+                CRITERE(1)="STOFCY=LFCY"             # hcb 41754
+              Endif                                  # hcb 41754
+    When 32 : OBJET = "DBY"                          # hcb 41754
+              If LFCY<>""                            # hcb 41754
+                CRITERE(1)="STOFCY=LFCY"             # hcb 41754
+              Endif                                  # hcb 41754
+
+    When 35 : OBJET = "SLM"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 16 : Gosub SELMVT
+
+#issue X3-74616 by APL 14.01.2018 BEGIN
+#    When 26 : LTYP = 12 : Gosub SELMVT
+#    When 12 : LTYP = 12 : Gosub SELMVT               # Bug 79002
+    When 26 : OBJET = "SRH" : LTYP = 12 : Gosub SELMVT
+    When 12 : OBJET = "SRH" : LTYP = 12 : Gosub SELMVT
+#issue X3-74616 by APL 14.01.2018 END
+
+
+    # rajout type de mouvement pour appel depuis les consultations
+    When 2  : OBJET = "SOH"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 4  : OBJET = "SDH"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 5  : OBJET = "SIH"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 8  : OBJET = "PNH"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 12 : OBJET = "SRH"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 18 : OBJET = "SIH"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 20 : OBJET = "SMO"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 33 : OBJET = "SRE"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+    When 36 : OBJET = "SCO"
+              If LFCY<>""
+                CRITERE(1)="STOFCY=LFCY"
+              Endif
+Endcase
+Return
+
+$SELMVT
+#
+Local    Char    CRITERE(255)
+Local    Integer LSELMVT : LSELMVT=1
+#
+If clalev([F:STJ]) = 0 : Local File STOJOU     [STJ] : Endif
+If clalev([F:ITM]) = 0 : Local File ITMMASTER  [ITM] : Endif        # réintégration 9727
+If clalev([F:AXX]) = 0 : Local File ATEXTRA    [AXX] : Endif        # hcb 53562
+If clalev([F:CUD]) = 0 : Local File CUNLISDET  [CUD] : Endif        # hcb 61166
+
+#
+TIT(0) = mess(36,198,1)
+Raz NBCOL
+NBCOL += 1 : COL(NBCOL) = "[F:STJ]VCRNUM"
+Call TEXTFIC("STOJOU","VCRNUM",2,TIT(NBCOL))        From OBJDIV
+NBCOL += 1 : COL(NBCOL) = "[F:STJ]VCRTYP"
+Call TEXTFIC("STOJOU","VCRTYP",2,TIT(NBCOL))        From OBJDIV
+NBCOL += 1 : COL(NBCOL) = "[F:STJ]VCRNUMORI"
+Call TEXTFIC("STOJOU","VCRNUMORI",2,TIT(NBCOL))     From OBJDIV        # réintégration 9727
+NBCOL += 1 : COL(NBCOL) = "[F:STJ]ITMREF"
+Call TEXTFIC("STOJOU","ITMREF",2,TIT(NBCOL))        From OBJDIV        # réintégration 9727
+NBCOL += 1 : COL(NBCOL) = "[F:AXX]TEXTE"                               # hcb 53562
+Call TEXTFIC("ITMMASTER","DES1AXX",2,TIT(NBCOL)) From OBJDIV           # hcb 53562
+NBCOL += 1 : COL(NBCOL) = "[F:STJ]QTYSTU"
+Call TEXTFIC("STOJOU","QTYSTU",2,TIT(NBCOL))        From OBJDIV        # réintégration 9727
+NBCOL += 1 : COL(NBCOL) = "[F:STJ]STU"
+Call TEXTFIC("STOJOU","STU",2,TIT(NBCOL))           From OBJDIV        # réintégration 9727
+NBCOL += 1 : COL(NBCOL) = "[F:STJ]TRSTYP"
+Call TEXTFIC("STOJOU","TRSTYP",2,TIT(NBCOL))        From OBJDIV        # 12.02 16900
+#
+# Filtre
+
+CRITERE  = "[F:STJ]STOFCY = LFCY & [F:STJ]VCRTYP = LTYP & [F:STJ]UPDCOD = 2 & [F:STJ]VCRNUM>=LVCR"
+If LTYP = 12
+    CRITERE += " & [F:STJ]MVTDES = mess(145,190,1) & [F:STJ]TRSTYP = 19"
+Endif
+#
+Link [STJ] With [ITM]ITM0=[F:STJ]ITMREF
+&          As [STX]
+&          Where evalue(CRITERE)
+
+If LVCR<>""
+    ORDRE = "VCRNUM"
+Endif
+
+SIZLIG  = 100
+SIZCOL  = 280
+Default File [STX]
+Return
+
+$VERF_SELVCR
+If dim(LSELMVT) > 0
+    If LSELMVT : PARAM(1) = [F:STJ]VCRNUM : Endif
+    Raz LSELMVT
+Endif
+Return

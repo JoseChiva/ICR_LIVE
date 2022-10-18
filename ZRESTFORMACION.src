@@ -1,0 +1,2850 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$
+Local Decimal I
+Global Integer GDIAS
+# FASE 1
+# I = func IEMPRESAS(0)
+# I = func IFORMASDEPAGO("")
+# I = func IZONAS("")
+# I = func IAGENTES("")
+# I = func IMONEDAS("")
+# I = func ITARIFAS("","")
+# I = func ITIPOSCLIENTE("")
+
+# FASE 2
+# I = func ICATALOGOS("")
+# I = func ICATALOGOSMARINO()
+# I = func IFAMILIAS("")
+
+# I = func IARTICULOS("")
+# I = func IARTICULOS("7610313424870")
+
+# I = func ITARIFASLINS("")
+
+# I = func IAGENTESLTARS("","")
+# I = func IAGENTESLCAT("")
+
+# FASE 3
+# I = func ICLIENTES("")
+# I = func ICLIENTESLDIR('01010')
+
+End
+
+
+
+
+############################################################
+#**
+#* Datos de las empresas que manejará el Mobility Server.
+#*
+#* Inserción de empresas.
+#* Si la empresa ya existe el webservice devuelve el erro 409
+#* Si la empesa se crea, el webService devuelve el valor 201.
+#*
+#*!
+Funprog IEMPRESAS(PEMPRESA)
+Value Integer PEMPRESA
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+Local Char SEP(1)
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YIEM]) Then : Local File YINAEMPRESAS [F:YIEM] : Endif
+  If PEMPRESA = 0 Then
+    Filter [F:YIEM] Where CODEMPRESA = '101' or CODEMPRESA = '201'
+  Else
+    Filter [F:YIEM] Where CODEMPRESA = PEMPRESA
+  Endif
+  For [YIEM]
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$([F:YIEM]CODEMPRESA)  + ','
+    CDATA+='"nomEmpresa":"'                 + [F:YIEM]NOMEMPRESA        + '",'
+    CDATA+='"rsoEmpresa":"'                 + [F:YIEM]RSOEMPRESA        + '",'
+    CDATA+='"cifEmpresa":"'                 + [F:YIEM]CIFEMPRESA        + '",'
+    CDATA+='"datCalleEmpresa":"'            + [F:YIEM]CALLEEMPRESA      + '",'
+    CDATA+='"codPostalEmpresa":"'           + [F:YIEM]CODPOSTALEMP      + '",'
+    CDATA+='"datPoblacionEmpresa":"'        + [F:YIEM]POBLACIONEMP      + '",'
+    CDATA+='"datProvinciaEmpresa":"'        + [F:YIEM]PROVINCIAEMP      + '",'
+    CDATA+='"datPaisEmpresa":"'             + [F:YIEM]PAISEMP           + '",'
+    CDATA+='"datTelefonoEmpresa":"'         + [F:YIEM]TELEFONOEMP       + '",'
+    CDATA+='"datFaxEmpresa":"'              + [F:YIEM]FAXEMP            + '",'
+    CDATA+='"datEmailEmpresa":"'            + [F:YIEM]EMAILEMP          + '",'
+    CDATA+='"hipWebEmpresa":"'              + [F:YIEM]WEBEMP            + '",'
+    CDATA+='"datColetillaPedido":"'         + num$(1)                   + '",'
+    CDATA+='"flaEmpSuministradora":'        + num$(0)                   + ','
+    CDATA+='"flaImgModificada":'            + num$(0)
+    CDATA+='}'
+
+    # busca la empresa
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iEmpresas?empresa="+[F:YIEM]CODEMPRESA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # la empresa existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iEmpresas?empresa="+[F:YIEM]CODEMPRESA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("EMPRESAS","UPDATE",num$(RETVAL),num$([F:YIEM]CODEMPRESA),[F:YIEM]NOMEMPRESA,[F:YIEM]RSOEMPRESA,[F:YIEM]CIFEMPRESA)
+    # la empresa no existe
+    Else
+      # se crea la empresa
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iEmpresas",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("EMPRESAS","UPDATE",num$(RETVAL),num$([F:YIEM]CODEMPRESA),[F:YIEM]NOMEMPRESA,[F:YIEM]RSOEMPRESA,[F:YIEM]CIFEMPRESA)
+    Endif
+
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      #[L]ASTATUS=fmet this.ASETERROR("","Post failed status="+num$(RETVAL),[V]CST_AERROR)
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+  Next
+  Filter [F:YIEM]
+  Close Local File [YIEM]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+
+############################################################
+#**
+#* Datos para las estadisticas.
+#*
+#*
+#*!
+Funprog IESTADISTICAS(PFACTURA)
+Value Integer PEMPRESA
+Local Char LCODCLIINA
+Local Integer RETVAL
+Local Char LFECHA(30), LHORA(30)
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I, Z, J
+Local Char SEP(1)
+Local Char LESABONO
+Local Decimal LTOTAL_IVA, LTOTAL_REQ
+
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YSIH]) Then : Local File SINVOICE [F:YSIH] : Endif
+  If !clalev([F:YSID]) Then : Local File SINVOICED [F:YSID] : Endif
+
+  LHORA  = vireblc(num$(time$),4) : LHORA  = mid$(LHORA,1,2)+mid$(LHORA,4,2)+mid$(LHORA,7,2)
+
+  If PFACTURA <> '' Then
+    Filter [F:YSIH] Where (NUM = PFACTURA and PFACTURA <> '')
+  Else
+    Filter [F:YSIH] Where YINACATALOG <> 2 and (FCY = '101' or FCY = '102' or FCY = '201')
+  Endif
+
+  For [F:YSIH]
+    LCODCLIINA = func GET_CODCLI([F:YSIH]BPR)
+    LFECHA = vireblc(num$([F:YSIH]ACCDAT),4) : LFECHA = mid$(LFECHA,7,4)+"-"+mid$(LFECHA,4,2)+"-"+mid$(LFECHA,1,2)+"T01:00:00"
+    If num$([F:YSIH]INVTYP) = '2' Then
+      LESABONO = '-'
+    Else
+      LESABONO = ''
+    Endif
+
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$([F:YSIH]FCY)             + ','
+    CDATA+='"codPedido":"'                  + [F:YSIH]NUM                   + '",'
+    CDATA+='"fecPedido":"'                  + LFECHA                        + '",'
+    CDATA+='"codCliente":"'                 + LCODCLIINA                    + '",'
+    CDATA+='"linDirCli":'                   + func YINACATAL.GET_LINDIRINA([F:YSIH]BPAPAY,[F:YSIH]BPR ,num$(101))               + ','
+    CDATA+='"codFormaPago":"'               + [F:YSIH]PTE                   + '",'
+    CDATA+='"tpcDtoPp":'                    + '0'                           + ','
+    CDATA+='"tpcDto03":'                    + '0'                           + ','
+    CDATA+='"codMoneda":"'                  + 'EUR'                         + '",'
+    CDATA+='"codIncoterm":"'                + ''                            + '",'
+    CDATA+='"totBrutoPed":'                 + LESABONO+num$([F:YSIH]AMTATI)          + ','
+    CDATA+='"totBaseImponiblePed":'         + LESABONO+num$([F:YSIH]AMTNOT)          + ','
+    LTOTAL_IVA = 0
+    LTOTAL_REQ = 0
+    For J = 0 To 6
+      If (func GET_TIPOIMPUESTO([F:YSIH]TAX(J)) = 'VAT' )
+        LTOTAL_IVA +=  [F:YSIH]AMTTAX(J)
+      Else
+        LTOTAL_REQ += [F:YSIH]AMTTAX(J)
+      Endif
+    Next J
+
+    CDATA+='"totIVAPed":'                   + LESABONO+num$(LTOTAL_IVA)       + ','
+    CDATA+='"totREPed":'                    + LESABONO+num$(LTOTAL_REQ)       + ','
+    CDATA+='"datFechaEntrega":"'            + num$([F:YSIH]ACCDAT)           + '",'
+    CDATA+='"datEstadoPedido":"'            + 'Factura'                     + '"'
+    CDATA+='}'
+
+    # crear factura
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iPedidosCentrals",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("IPEDIDOSCENTRAL","POST",num$(RETVAL),num$([F:YSIH]FCY),[F:YSIH]NUM ,LCODCLIINA,'')
+
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+    If RETVAL<>200 and RETVAL<>201 and RETVAL<>204 and RETVAL<>409 Then
+#      #[L]ASTATUS=fmet this.ASETERROR("","Post failed status="+num$(RETVAL),[V]CST_AERROR)
+#      # Infbox "Error inserción: " +num$(RETVAL)
+    Else
+#      Infbox "INSERTADO CORRECTAMENTE"
+       Z = func IESTADISTICASLIN([F:YSIH]NUM, num$([F:YSIH]FCY), LESABONO)
+    Endif
+
+    If Z = 201 Then
+      Trbegin [YSIH]
+      [F:YSIH]YINACATALOG = 2
+      Rewrite [F:YSIH]
+      If !fstat Then
+        Commit
+      Else
+        Rollback
+      Endif
+    Endif
+  Next
+  Filter [F:YSIH]
+  Close Local File [YSIH]
+  Close Local File [YSID]
+
+  Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+
+End RETVAL
+
+
+############################################################
+#**
+#* Datos para las estadisticas - lineas de facturas.
+#*
+#*
+#*!
+Funprog IESTADISTICASLIN(PFACTURA, PFCY, PESABONO)
+Value Char PFCY,PESABONO,PFACTURA
+Local Char LCODCLIINA
+Local Integer RETVAL
+Local Char LFECHA(30), LHORA(30)
+Local Char LFAMILIA, LSUBFAMILIA
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+Local Char SEP(1)
+
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+#{
+#  "codEmpresa": 1,
+#  "codPedido": "sample string 2",
+#  "linPedido": 3,
+#  "codArticulo": "sample string 4",
+#  "desLinPed": "sample string 5",
+#  "codMagnitud": "sample string 6",
+#  "canLinPed": 7.0,
+#  "canIndicada": 8.0,
+#  "tpcDto01": 9.0,
+#  "tpcDto02": 10.0,
+#  "preLinPed": 11.0,
+#  "impBaseImponibleLinPed": 12.0,
+#  "codCatalogo": "sample string 13",
+#  "codFamilia": 14,
+#  "codSubFamilia": 15,
+#  "canLinPedPte": 16.0
+#}
+
+  If !clalev([F:YSID]) Then : Local File SINVOICED [F:YSID] : Endif
+  If !clalev([F:YITM]) Then : Local File ITMMASTER [F:YITM] : Endif
+
+  For [F:YSID] Where (NUM = PFACTURA)
+    Read [F:YITM]ITM0=[F:YSID]ITMREF
+    If !fstat Then
+      LFAMILIA = func GET_FAMILIA([F:YITM]TSICOD(0))
+      LSUBFAMILIA = func GET_SUBFAMILIA([F:YITM]TSICOD(0),[F:YITM]TSICOD(2))
+    Else
+      LFAMILIA = '0'
+      LSUBFAMILIA = '0'
+    Endif
+    If LFAMILIA = '' Then
+       LFAMILIA = '0'
+    Endif
+    If LSUBFAMILIA = '' Then
+      LSUBFAMILIA = '0'
+    Endif
+
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + PFCY                          + ','
+    CDATA+='"codPedido":"'                  + PFACTURA                   + '",'
+    CDATA+='"linPedido":'                   + num$([F:YSID]SIDLIN/1000)     + ','
+    CDATA+='"codArticulo":"'                + [F:YSID]ITMREF                + '",'
+    CDATA+='"desLinPed":"'                  + ctrans([F:YSID]ITMDES,'"',' ')                + '",'
+    CDATA+='"codMagnitud":"'                + 'U'                           + '",'
+    CDATA+='"canLinPed":'                   + PESABONO+num$([F:YSID]QTY)    + ','
+    CDATA+='"canIndicada":'                 + PESABONO+num$([F:YSID]QTY)    + ','
+    CDATA+='"tpcDto01":'                    + '0'                           + ','
+    CDATA+='"tpcDto02":'                    + '0'                           + ','
+    CDATA+='"preLinPed":'                   + PESABONO+num$([F:YSID]NETPRINOT)       + ','
+    CDATA+='"impBaseImponibleLinPed":'      + PESABONO+num$([F:YSID]AMTNOTLIN)       + ','
+    CDATA+='"codCatalogo":"'                + 'CATGENX3'                    + '",'
+    CDATA+='"codFamilia":'                  + LFAMILIA                      + ','
+    CDATA+='"codSubFamilia":'               + LSUBFAMILIA                   + ','
+    CDATA+='"canLinPedPte":'                + '0'
+    CDATA+='}'
+
+    # crear factura
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iPedidosCentralLins",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("IPEDIDOSCENTRALlin","POST",num$(RETVAL),PFCY,[F:YSID]NUM ,num$([F:YSID]SIDLIN/1000),[F:YSID]ITMREF)
+
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      #[L]ASTATUS=fmet this.ASETERROR("","Post failed status="+num$(RETVAL),[V]CST_AERROR)
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      RETVAL = 0
+#      Break
+#    Else
+#       RETVAL = 1
+#    Endif
+
+  Next
+  Filter [F:YSID]
+  Close Local File [YSID]
+  Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Tabla para insertar las formas de pago.
+#*
+#* Formas de pago
+#*!
+Funprog IFORMASDEPAGO(PFORMAPAGO)
+Value Char PFORMAPAGO
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YIFP]) Then : Local File YINAFORMAPAG [F:YIFP] : Endif
+  If PFORMAPAGO <> "" Then
+    Filter [F:YIFP] Where CODFORMAPAGO = PFORMAPAGO
+  Else
+    Filter [F:YIFP] Where UPDDATTIM >= date$ - GDIAS
+  Endif
+  For [YIFP]
+    # planta 101
+    CDATA="{"
+    CDATA+='"codEmpresa":'                  + '101'                   + ','
+    CDATA+='"codFormaPago":"'               + [F:YIFP]CODFORMAPAGO    + '",'
+    CDATA+='"desFormaPago":"'               + [F:YIFP]DESFORMAPAGO    + '"'
+    CDATA+="}"
+    # busca la forma de pago
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iFormasPagoes?empresa=101&codformapago="+[F:YIFP]CODFORMAPAGO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # la forma de pago existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iFormasPagoes?empresa=101&codformapago="+[F:YIFP]CODFORMAPAGO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("FORMASPAGOS","UPDATE",num$(RETVAL),"101",[F:YIFP]CODFORMAPAGO,"","")
+    # la forma de pago no existe
+    Else
+      # se crea la forma de pago
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iFormasPagoes",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("FORMASPAGOS","INSERT",num$(RETVAL),"101",[F:YIFP]CODFORMAPAGO,"","")
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      #[L]ASTATUS=fmet this.ASETERROR("","Post failed status="+num$(RETVAL),[V]CST_AERROR)
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+    # planta 201
+    CDATA="{"
+    CDATA+='"codEmpresa":'                  + '201'                   + ','
+    CDATA+='"codFormaPago":"'               + [F:YIFP]CODFORMAPAGO    + '",'
+    CDATA+='"desFormaPago":"'               + [F:YIFP]DESFORMAPAGO    + '"'
+    CDATA+="}"
+    # busca la forma de pago
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iFormasPagoes?empresa=201&codformapago="+[F:YIFP]CODFORMAPAGO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("FORMASPAGOS","UPDATE",num$(RETVAL),"201",[F:YIFP]CODFORMAPAGO,"","")
+    # la forma de pago existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iFormasPagoes?empresa=201&codformapago="+[F:YIFP]CODFORMAPAGO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("FORMASPAGOS","INSERT",num$(RETVAL),"201",[F:YIFP]CODFORMAPAGO,"","")
+    # la forma de pago no existe
+    Else
+      # se crea la forma de pago
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iFormasPagoes",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+  Next
+  If PFORMAPAGO <> "" Then
+    Filter [F:YIFP]
+  Endif
+  Close Local File [YIFP]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Tabla para insertar las zonas.
+#*
+#* Zonas
+#*!
+Funprog IZONAS(PZONA)
+Value Char PZONA
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  Local Char LCODZONA(50), LDESZONA(250)
+  If PZONA = "" Then
+    LCODZONA  = "0"
+    LDESZONA  = "General"
+  Endif
+#  For [YIFP]
+    # planta 101
+    CDATA="{"
+    CDATA+='"codEmpresa":'                  + '101'                   + ','
+    CDATA+='"codZona":"'                    + LCODZONA                + '",'
+    CDATA+='"desZona":"'                    + LDESZONA                + '"'
+    CDATA+="}"
+    # busca la zona
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iZonas?empresa=101&codzona="+LCODZONA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # la zona existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iZonas?empresa=101&codzona="+LCODZONA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("ZONAS","UPDATE",num$(RETVAL),"101",LCODZONA,LDESZONA,"")
+    # la zona no existe
+    Else
+      # se crea la zona
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iZonas",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("ZONAS","CREATE",num$(RETVAL),"101",LCODZONA,LDESZONA,"")
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+    # planta 201
+    CDATA="{"
+    CDATA+='"codEmpresa":'                  + '201'                   + ','
+    CDATA+='"codZona":"'                    + LCODZONA                + '",'
+    CDATA+='"desZona":"'                    + LDESZONA                + '"'
+    CDATA+="}"
+    # busca la zona
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iZonas?empresa=201&codzona="+LCODZONA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("ZONAS","UPDATE",num$(RETVAL),"201",LCODZONA,LDESZONA,"")
+    # la zona existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iZonas?empresa=201&codzona="+LCODZONA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("ZONAS","CREATE",num$(RETVAL),"201",LCODZONA,LDESZONA,"")
+    # la zona no existe
+    Else
+      # se crea la zona
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iZonas",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+#  Next
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Tabla de agentes / comerciales para relacionar cada dispositivo con su/s agente/s.
+#*
+#* Agentes
+#*!
+Funprog IAGENTES(PAGENTE)
+Value Char PAGENTE
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YREP]) Then : Local File SALESREP [F:YREP] : Endif
+  If PAGENTE <> "" Then
+    Read [F:YREP]REP0 = PAGENTE
+  Else
+    Filter [F:YREP] Where (UPDDAT >= date$ - GDIAS or CREDAT >= date$ - GDIAS)
+  Endif
+
+  For [YREP]
+
+    # planta 101
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$(101)               + ','
+    CDATA+='"codAgente":"'                  + [F:YREP]REPNUM          + '",'
+    CDATA+='"nomAgente":"'                  + [F:YREP]REPNAM          + '"'
+    CDATA+='}'
+    # busca el representante
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iAgentes?empresa=101&codagente="+[F:YREP]REPNUM,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # el representante existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iAgentes?empresa=101&codagente="+[F:YREP]REPNUM,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("AGENTES","UPDATE",num$(RETVAL),num$(101),[F:YREP]REPNUM,"","")
+    # el representante no existe
+    Else
+      # se crea el representante
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iAgentes",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("AGENTES","CREATE",num$(RETVAL),num$(101),[F:YREP]REPNUM,"","")
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+  Next
+  If PAGENTE = "" Then
+    Filter [F:YREP]
+  Endif
+  Close Local File [YREP]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Tabla para insertar las divisas.
+#*
+#* Monedas
+#*
+#*!
+Funprog IMONEDAS(PMONEDA)
+Value Char PMONEDA()
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YTCU]) Then : Local File TABCUR [F:YTCU] : Endif
+  If PMONEDA <> "" Then
+    Read [F:YTCU]TCU0 = PMONEDA
+  Endif
+  For [YTCU]
+    CDATA='{'
+    CDATA+='"codMoneda":"'                  + [F:YTCU]CUR             + '",'
+    CDATA+='"desMoneda":"'                  + [F:YTCU]CURDES          + '",'
+    CDATA+='"datSimbolo":"'                 + [F:YTCU]CURSYM          + '",'
+    CDATA+='"flaPrefijo":'                  + num$(0)                 + ','
+    CDATA+='"valDecimales":'                + num$(2)                 + ''
+    CDATA+='}'
+
+    # busca la moneda
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iMonedas?codMoneda="+[F:YTCU]CUR,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # la moneda existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iMonedas?codMoneda="+[F:YTCU]CUR,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("MONEDAS","UPDATE",num$(RETVAL),[F:YTCU]CUR,[F:YTCU]CURDES,[F:YTCU]CURSYM,"")
+    # la moneda no existe
+    Else
+      # se crea la moneda
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iMonedas",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("MONEDAS","CREATE",num$(RETVAL),[F:YTCU]CUR,[F:YTCU]CURDES,[F:YTCU]CURSYM,"")
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+  Next
+  Close Local File [YTCU]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Las distintas tarifas de venta aplicables en inaCátalog.
+#*
+#* Inserción de tarifas
+#* Si la empresa ya existe el webservice devuelve el erro 409
+#* Si la empesa se crea, el webService devuelve el valor 201.
+#*
+#*!
+Funprog ITARIFAS(PPLI,PPLICRD)
+Value Char PPLI()
+Value Char PPLICRD()
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YITF]) Then : Local File YINATARIFAS [F:YITF] : Endif
+  Filter [F:YITF] Where (CODTARIFA = 'YN70' or CODTARIFA = 'YN20' or CODTARIFA = 'YN40' or CODTARIFA = 'YN40C' or CODTARIFA = 'LM30')
+  For [YITF]
+    # planta 101
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$(101)               + ','
+    CDATA+='"codTarifa":"'                  + [F:YITF]CODTARIFA       + '",'
+    CDATA+='"desTarifa":"'                  + [F:YITF]DESTARIFA       + '",'
+    CDATA+='"codIncoterm":"'                + ''                      + '",'
+    CDATA+='"flaIVAIncluido":'              + num$(0)                 + ','
+    CDATA+='"codMoneda":"'                  + 'EUR'                   + '"'
+    CDATA+='}'
+
+    # busca la tarifa
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iTarifas?empresa=101&codtarifa="+[F:YITF]CODTARIFA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # la tarifa existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iTarifas?empresa=101&codtarifa="+[F:YITF]CODTARIFA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("TARIFAS","UPDATE",num$(RETVAL),num$(101),[F:YITF]CODTARIFA,[F:YITF]DESTARIFA,"")
+    # la tarifa no existe
+    Else
+      # se crea la tarifa
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iTarifas",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("TARIFAS","CREATE",num$(RETVAL),num$(101),[F:YITF]CODTARIFA,[F:YITF]DESTARIFA,"")
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+  Next
+  If PPLI <> "" and PPLICRD <> "" Then
+    Filter [F:YITF]
+  Endif
+  Close Local File [YITF]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Las distintas tarifas de venta de los artículos que se aplican en inaCátalog.
+#*
+#* Tarifas de venta - lineas
+#*!
+Funprog ITARIFASLINS(PPLI)
+Value Char PPLI()
+
+Local Integer RETVAL
+Local Char LTARIFA
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+  If !clalev([F:YSPL]) Then : Local File SPRICLIST [F:YSPL] : Endif
+  If PPLI <> '' Then
+      Filter [F:YSPL] Where (PLI = PPLI)
+  Else
+      Filter [F:YSPL] Where (PLI = 'YN20' or PLI = 'YN40' or PLI = 'LM30') #and (UPDDAT >= date$ - GDIAS or CREDAT >= date$ - GDIAS)
+  Endif
+
+  For [YSPL]
+    # planta 101
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$(101)               + ','
+    LTARIFA = [F:YSPL]PLI
+    If [F:YSPL]PLI = 'YN40' Then
+      If [F:YSPL]PLICRI3 = 'YC' Then
+        CDATA+='"codTarifa":"'              + [F:YSPL]PLI + 'C'       + '",'
+        LTARIFA = [F:YSPL]PLI + 'C'
+      Else
+        CDATA+='"codTarifa":"'              + [F:YSPL]PLI             + '",'
+      Endif
+    Else
+      CDATA+='"codTarifa":"'                + [F:YSPL]PLI             + '",'
+    Endif
+    CDATA+='"codMagnitud":"'                + 'U'                     + '",'
+    If [F:YSPL]PLI = 'YN60' Then
+      CDATA+='"codArticulo":"'              + [F:YSPL]PLICRI3         + '",'
+    Else
+      CDATA+='"codArticulo":"'              + [F:YSPL]PLICRI2         + '",'
+    Endif
+    CDATA+='"canMinima":'                   + num$([F:YSPL]MINQTY)    + ','
+    CDATA+='"preArticulo":'                 + num$([F:YSPL]PRI)       + ','
+    CDATA+='"flaPreMagnitud":'              + num$(0)                 + ','
+    If [F:YSPL]DCGVAL(0) <> 0 Then
+      CDATA+='"tpcDto01Def":'               + num$([F:YSPL]DCGVAL(0)) + ','
+    Else
+      CDATA+='"tpcDto01Def":'               + 'null'                  + ','
+    Endif
+    If [F:YSPL]DCGVAL(1) <> 0 Then
+        CDATA+='"tpcDto02Def":'             + num$([F:YSPL]DCGVAL(1)) + ','
+    Else
+      CDATA+='"tpcDto02Def":'               + 'null'                  + ','
+    Endif
+    If [F:YSPL]DCGVAL(2) <> 0 Then
+      CDATA+='"tpcDto01Max":'               + num$([F:YSPL]DCGVAL(2)) + ','
+    Else
+      CDATA+='"tpcDto01Max":'               + 'null' + ','
+    Endif
+    If [F:YSPL]DCGVAL(3) <> 0 Then
+      CDATA+='"tpcDto02Max":'               + num$([F:YSPL]DCGVAL(3)) + ','
+    Else
+      CDATA+='"tpcDto02Max":'               + 'null'                  + ','
+    Endif
+    CDATA+='"PuntosSinDto":'                + num$(0)                 + ','
+    CDATA+='"PuntosConDto":'                + num$(0)                 + ','
+    CDATA+='"flaPuntosUnitarios":'          + num$(1)                 + ''
+    CDATA+='}'
+
+    # busca la tarifa
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iTarifasLins?empresa=101&codtarifa="+LTARIFA+"&codmagnitud=U&codarticulo="+[F:YSPL]PLICRI2+"&canminima="+num$([F:YSPL]MINQTY),PCOD,
+& PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # la empresa existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iTarifasLins?empresa=101&codtarifa="+LTARIFA+"&codmagnitud=U&codarticulo="+[F:YSPL]PLICRI2+"&canminima="+num$([F:YSPL]MINQTY),PCOD,
+& PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("TARIFASLIN","UPDATE",num$(RETVAL),num$(101),LTARIFA,[F:YSPL]PLICRD,"")
+    Else
+      # se crea la empresa
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iTarifasLins",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("TARIFASLIN","CREATE",num$(RETVAL),num$(101),LTARIFA,[F:YSPL]PLICRD,num$([F:YSPL]PLILIN))
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+  Next
+  If PPLI <> "" Then
+    Filter [F:YSPL]
+  Endif
+  Close Local File [YSPL]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#*
+#*
+#* Tipos de clientes
+#*
+#*!
+Funprog IPRECIOSESPLIN()
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+Local Char CODCLIENTE(250)
+Local Integer I
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+#{
+#  "codEmpresa": 1,
+#  "codCliente": "sample string 2",
+#  "codTarifa": "sample string 3",
+#  "codMagnitud": "sample string 4",
+#  "codArticulo": "sample string 5",
+#  "canMinima": 6.0,
+#  "tipPrecioAccion": "sample string 7",
+#  "preEspLin": 8.0,
+#  "tipDto1Accion": "sample string 9",
+#  "tpcDto1": 10.0,
+#  "tipDto2Accion": "sample string 11",
+#  "tpcDto2": 12.0,
+#  "flaPreMagnitud": 64
+#}
+
+  If !clalev([F:YSPL]) Then : Local File SPRICLIST [F:YSPL] : Endif
+  Filter [F:YSPL] Where (PLI = 'YN10')
+  For [YSPL]
+    CODCLIENTE = func GET_CODCLI([F:YSPL]PLICRI1)
+    # planta 101
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$(101)               + ','
+    CDATA+='"codCliente":"'                  + CODCLIENTE             + '",'
+    CDATA+='"codTarifa":"'                  + [F:YSPL]PLI             + '",'
+    CDATA+='"codMagnitud":"'                + 'U'                     + '",'
+    CDATA+='"codArticulo":"'                + [F:YSPL]PLICRI2         + '",'
+    CDATA+='"canMinima":'                   + '0'                     + ','
+    CDATA+='"tipPrecioAccion":"'             + "="                    + '",'
+    CDATA+='"preEspLin":'                   + ctrans(num$([F:YSPL]PRI),',','.')       + ','
+    CDATA+='"tipDto1Accion":"'               + " "                     + '",'
+    CDATA+='"tpcDto1":'                     + num$(0)                 + ','
+    CDATA+='"tipDto2Accion":"'               + " "                     + '",'
+    CDATA+='"tpcDto2":'                     + num$(0)                 + ','
+    CDATA+='"flaPreMagnitud":'              + num$(0)                 + ''
+    CDATA+='}'
+
+    # busca la tarifa
+    #"/inacatalogapi/api/iPreciosEspLins?empresa=1&codCliente=03106&codTarifa=YP&codMagnitud=U&codArticulo=5200CAT&canMinima=0"
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iPreciosEspLins?empresa=101&codcliente="+CODCLIENTE+"&codtarifa="+[F:YSPL]PLI+"&codmagnitud=U&codarticulo="+[F:YSPL]PLICRI2+
+& "&canminina="+num$([F:YSPL]MINQTY),PCOD,PVAL,HCOD,HVAL,'{}',0 ,'',RESHEAD, RESBODY)
+
+    # la empresa existe
+    If RETVAL=200 Then
+      # se actualizan datos
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iPreciosEspLins?empresa=101&codcliente="+CODCLIENTE+"&codtarifa="+[F:YSPL]PLI+"&codmagnitud=U&codarticulo="+[F:YSPL]PLICRI2+
+& "&canminina="+num$([F:YSPL]MINQTY),PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("PRECIOSESPLIN","UPDATE",num$(RETVAL),num$(101),CODCLIENTE,[F:YSPL]PLI,[F:YSPL]PLICRI2)
+    # la empresa no existe
+    Else
+      # se crea la empresa
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iPreciosEspLins",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("PRECIOSESPLIN","CREATE",num$(RETVAL),num$(101),CODCLIENTE,[F:YSPL]PLI,[F:YSPL]PLICRI2)
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Endif
+
+  Next
+
+  Close Local File [YSPL]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+#############################################################################################
+Funprog IPLANTILLACOMERCIAL()
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+Local Char CODCLIENTE
+Local Integer I
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+# {
+#      "codEmpresa": 1,
+#      "codPlantillaComercial": "0028001-ERP",
+#      "codTipoPlantilla": "FP",
+#      "desPlantillaComercial": "DTO3 0028001",
+#      "fecVigenciaInicial": "2019-12-03T13:59:49",
+#      "fecVigenciaFinal": "2021-12-03T13:59:49",
+#      "codTarifa": null,
+#      "codCliente": "0028001",
+#      "codZona": null,
+#      "codTipoCliente": null,
+#      "codAgente": null,
+#      "codGrupoPreciosCliente": null,
+#      "codTipoArticulo": null,
+#      "codCatalogo": null,
+#      "codFamilia": null,
+#      "codSubFamilia": null,
+#      "codArticulo": null,
+#      "codGrupoPreciosArticulo": null,
+#      "obsPlantillaComercial": "",
+#      "codModeloTyC": null
+#   },
+
+  # TARIFA YN30
+  If !clalev([F:YSPL]) Then : Local File SPRICLIST [F:YSPL] : Endif
+  Filter [F:YSPL] Where (PLI = 'YN30')
+  For [F:YSPL]
+    # CODCLIENTE = func GET_CODCLI([F:YSPL]PLICRI1)
+    # planta 101
+    CDATA='{'
+    CDATA+='"codEmpresa":'                          + num$(101)                               + ','
+    CDATA+='"codPlantillaComercial":"'              + [F:YSPL]PLICRD+"/"+[F:YSPL]PLICRI2      + '",'
+    CDATA+='"codTipoPlantilla":"'                   + 'LP'                                    + '",'
+    CDATA+='"desPlantillaComercial":"'              + [F:YSPL]PLICRD+"/"+[F:YSPL]PLICRI2      + '",'
+    CDATA+='"fecVigenciaInicial":"'                 + num$(year([F:YSPL]PLISTRDAT))+"-"+num$(month([F:YSPL]PLISTRDAT))+"-"+num$(day([F:YSPL]PLISTRDAT))+"T00:00:00" + '",'
+    CDATA+='"fecVigenciaFinal":"'                   + num$(year([F:YSPL]PLIENDDAT))+"-"+num$(month([F:YSPL]PLIENDDAT))+"-"+num$(day([F:YSPL]PLIENDDAT))+"T00:00:00" + '",'
+    CDATA+='"codGrupoPreciosCliente":"'             + [F:YSPL]PLICRI1                         + '",'
+    CDATA+='"codArticulo":"'                        + [F:YSPL]PLICRI2                         + '",'
+    CDATA+='"obsPlantillaComercial":"'              + 'Tarifa YN30'                           + '"'
+    CDATA+='}'
+
+    # busca la tarifa
+    #"/inacatalogapi/api/iPreciosEspLins?empresa=1&codCliente=03106&codTarifa=YP&codMagnitud=U&codArticulo=5200CAT&canMinima=0"
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iPlantillaComercials?empresa=101&codplantillacomercial="+[F:YSPL]PLICRD+"/"+[F:YSPL]PLICRI3,PCOD,PVAL,HCOD,HVAL,'{}',0 ,'',RESHEAD,
+& RESBODY)
+    # la empresa existe
+    If RETVAL=200 Then
+      # se actualizan datos
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iPlantillaComercials?empresa=101&codplantillacomercial="+[F:YSPL]PLICRD+"/"+[F:YSPL]PLICRI3,PCOD, PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD,
+& RESBODY)
+      Call WRITE_LOG("IPLANTILLACOMERCIAL","UPDATE",num$(RETVAL),num$(101),[F:YSPL]PLICRD+"/"+[F:YSPL]PLICRI3,'','')
+    # la empresa no existe
+    Else
+      # se crea la empresa
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iPlantillaComercials",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("IPLANTILLACOMERCIAL","CREATE",num$(RETVAL),num$(101),[F:YSPL]PLICRD+"/"+[F:YSPL]PLICRI3,'','')
+    Endif
+    # Manage the errors
+    # 404 - GET NO ENCONTRADO
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+    I = func IPLANTILLACOMERCIALLIN([F:YSPL]PLICRD+"/"+[F:YSPL]PLICRI2,ctrans(num$([F:YSPL]PRI),',','.'),ctrans(num$([F:YSPL]DCGVAL(1)),',','.'),"YN30")
+
+  Next
+  Close Local File [YSPL]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Definición de los posibles tipos de cliente que se muestran en la ficha del cliente.
+#*
+#* Tipos de clientes
+#*
+#*!
+Funprog IPLANTILLACOMERCIALLIN(PPLANTILLA,PPRI,PDTO,PCODTAR)
+Value Char PPLANTILLA()
+Value Char PPRI
+Value Char PDTO
+Value Char PCODTAR
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+Local Char CODCLIENTE
+Local Integer I
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+#{
+#      "codEmpresa": 1,
+#      "codPlantillaComercial": "01-10001-ERP/1000AR",
+#      "canMinima": 0,
+#      "tipPrecioAccion": " ",
+#      "preComercialLinArt": 0,
+#      "tipDto1Accion": " ",
+#      "tpcDto1": 0,
+#      "tipDto2Accion": "=",
+#      "tpcDto2": 25,
+#      "Puntos": 0,
+#      "flaPuntosUnitarios": 1
+#   }
+
+  # planta 101
+  CDATA='{'
+  CDATA+='"codEmpresa":'                  + num$(101)               + ','
+  CDATA+='"codPlantillaComercial":"'      + PPLANTILLA              + '",'
+  CDATA+='"canMinima":'                   + '0'                     + ','
+  If PCODTAR = "YN30" Then
+    CDATA+='"tipPrecioAccion":"'          + '='                     + '",'
+    CDATA+='"preComercialLinArt":'        + PPRI                    + ','
+    CDATA+='"tipDto1Accion":"'            + '='                     + '",'
+    CDATA+='"tpcDto1":'                   + PDTO                    + ','
+    CDATA+='"tipDto2Accion":"'            + ' '                     + '",'
+    CDATA+='"tpcDto2":'                   + "0"                     + ','
+  Elsif PCODTAR = "YN60" Then
+    CDATA+='"tipPrecioAccion":"'          + ' '                     + '",'
+    CDATA+='"preComercialLinArt":'        + '0'                     + ','
+    CDATA+='"tipDto1Accion":"'            + ' '                     + '",'
+    CDATA+='"tpcDto1":'                   + "0"                     + ','
+    CDATA+='"tipDto2Accion":"'            + '='                     + '",'
+    CDATA+='"tpcDto2":'                   + PDTO                    + ','
+  Endif
+  CDATA+='"Puntos":'                      + "0"                     + ','
+  CDATA+='"flaPuntosUnitarios":'          + num$(1)                 + ''
+  CDATA+='}'
+
+  # busca la tarifa
+  #"/inacatalogapi/api/iPreciosEspLins?empresa=1&codCliente=03106&codTarifa=YP&codMagnitud=U&codArticulo=5200CAT&canMinima=0"
+  RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iPlantillaComercialLinArts?empresa=101&codplantillacomercial="+PPLANTILLA+"&canminima=0",PCOD, PVAL,HCOD,HVAL,'{}',0 ,'',RESHEAD,
+& RESBODY)
+  # la empresa existe
+  If RETVAL=200 Then
+    # se actualizan datos
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iPlantillaComercialLinArts?empresa=101&codplantillacomercial="+PPLANTILLA+"&canminima=0",PCOD, PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD,
+& RESBODY)
+    If PCODTAR = "YN30" Then
+      Call WRITE_LOG("IPLANTILLACOMERCIALlin","UPDATE",num$(RETVAL),num$(101),PPLANTILLA,PPRI,num$([F:YSPL]PLILIN))
+    Elsif PCODTAR = "YN60" Then
+      Call WRITE_LOG("IPLANTILLACOMERCIALlin","UPDATE",num$(RETVAL),num$(101),PPLANTILLA,PDTO,num$([F:YSPL]PLILIN))
+    Endif
+  # la empresa no existe
+  Else
+    # se crea la empresa
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iPlantillaComercialLinArts",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    If PCODTAR = "YN30" Then
+      Call WRITE_LOG("IPLANTILLACOMERCIALlin","CREATE",num$(RETVAL),num$(101),PPLANTILLA,PPRI,num$([F:YSPL]PLILIN))
+    Elsif PCODTAR = "YN60" Then
+      Call WRITE_LOG("IPLANTILLACOMERCIALlin","CREATE",num$(RETVAL),num$(101),PPLANTILLA,PDTO,num$([F:YSPL]PLILIN))
+    Endif
+  Endif
+  # Manage the errors
+  # 200 - OK
+  # 201 - OK
+  # 409 - Conflicto porque ya existe el registro
+  # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Definición de los posibles tipos de cliente que se muestran en la ficha del cliente.
+#*
+#* Tipos de clientes
+#*
+#*!
+Funprog ITIPOSCLIENTE(PTIPOCLIENTE)
+Value Char PTIPOCLIENTE
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([YITC]) Then : Local File YINATIPOSCLI [YITC] : Endif
+  If PTIPOCLIENTE <> "" Then
+    Filter [F:YITC] Where NUMTAB = 32 and IDENT1 = "32" and CODTIPOCLI = PTIPOCLIENTE
+  Else
+    Filter [F:YITC] Where NUMTAB = 32 and IDENT1 = "32"
+  Endif
+  For [YITC]
+    # planta 101
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$(101)               + ','
+    CDATA+='"codTipoCliente":"'             + [F:YITC]CODTIPOCLI      + '",'
+    CDATA+='"desTipoCliente":"'             + [F:YITC]DESTIPOCLI      + '"'
+    CDATA+='}'
+    # busca el tipo de cliente
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iTiposClientes?empresa=101&codtipocliente="+[F:YITC]CODTIPOCLI,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    # el tipo de cliente existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iTiposClientes?empresa=101&codtipocliente="+[F:YITC]CODTIPOCLI,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("TIPOSCLIENTES","UPDATE",num$(RETVAL),num$(101),[F:YITC]CODTIPOCLI,[F:YITC]DESTIPOCLI,"")
+    # el tipo de cliente no existe
+    Else
+      # se crea el tipo de cliente
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iTiposClientes",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("TIPOSCLIENTES","CREATE",num$(RETVAL),num$(101),[F:YITC]CODTIPOCLI,[F:YITC]DESTIPOCLI,"")
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+  Next
+  Filter [F:YITC]
+  Close Local File [YITC]
+End RETVAL
+
+############################################################
+#**
+#* Esta  tabla  se  usará  en  el  caso  de  querer  implementar  multi-empresa  y/o  multi- catálogo.
+#*
+#* Inserción de catálogos.
+#* Si la familia ya existe el webservice devuelve el error 409
+#* Si la familia se crea, el webService devuelve el valor 201.
+#*
+#* ### SE CREA SOLO UN CATALOGO GENERICO PARA TODOS LOS ART�?CULOS DE X3 ####
+#*!
+Funprog ICATALOGOS(PCATALOGO)
+Value Char PCATALOGO()
+
+Local Integer RETVAL
+Local Integer I_ERROR
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+Local Char SEP(1)
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+#  HCOD(1)="content-type"
+#  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YICA]) Then : Local File YINACATALOGO [F:YICA] : Endif
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+  # planta 101
+  CDATA="{"
+  CDATA+='"codEmpresa":'                  + num$(101)           + ','
+  CDATA+='"codCatalogo":"'                + "CATGENX3"           + '",'
+  CDATA+='"desCatalogo":"'                + "Catálogo genéral X3"  + '",'
+  CDATA+='"obsCatalogo":"'                + ''                  + '",'
+  CDATA+='"nomImagenCat":"'               + ''                  + '",'
+  CDATA+='"nomIconoCat":"'                + ''                  + '",'
+  CDATA+='"flaIcoModificado":'            + num$(0)             + ','
+  CDATA+='"flaImgModificado":'            + num$(0)             + ','
+  CDATA+='"ordCatalogo":'                 + num$(0)             + ''
+  CDATA+="}"
+  # busca el catálogo
+  RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iCatalogos?empresa=101&codcatalogo=CATGENX3",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+  # el catálogo existe
+  If RETVAL=200 Then
+    # se actualizan datos
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iCatalogos?empresa=101&codcatalogo=CATGENX3",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("CATALOGOS","UPDATE",num$(RETVAL),"101",[F:YICA]CODFAMILIA,[F:YICA]DESFAMILIA,"")
+  # el catálogo no existe
+  Else
+    # se crea el catálogo
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iCatalogos",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("CATALOGOS","CREATE",num$(RETVAL),"101","CATGENX3","CATGENX3","")
+  Endif
+  # Manage the errors
+  # 200 - OK
+  # 201 - OK
+  # 409 - Conflicto porque ya existe el registro
+  # 204 - Despues de un PUT, si es correcta la actualización da 204
+#  If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#    #[L]ASTATUS=fmet this.ASETERROR("","Post failed status="+num$(RETVAL),[V]CST_AERROR)
+#    Infbox "Error inserción: " +num$(RETVAL)
+#    Infbox RESHEAD
+#    Infbox RESBODY
+#    Break
+#  Else
+#    Infbox "INSERTADO CORRECTAMENTE"
+#  Endif
+
+  Raz PCOD,PVAL,HCOD,HVAL,CDATA,RESHEAD, RESBODY
+
+  Filter [F:YICA]
+  Close Local File [YICA]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End 1
+
+############################################################
+#**
+#* Esta tabla se usará en el caso de querer implementar multi-empresa y/o multi- catálogo.
+#*
+#* Inserción de catálogos.
+#*
+#*!
+Funprog ICATALOGOSMARINO()
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  Local Char LCATALOGO(50) : LCATALOGO = "CATGENX3"
+
+  # planta 101
+  CDATA='{'
+  CDATA+='"codEmpresa":'                  + num$(101)               + ','
+  CDATA+='"codCatalogo":"'                + "CATGENX3"               + '",'
+  CDATA+='"desCatalogo":"'                + 'Catálogo genéral X3'    + '",'
+  CDATA+='"obsCatalogo":"'                + ''                      + '",'
+  CDATA+='"nomImagenCat":"'               + ''                      + '",'
+  CDATA+='"nomIconoCat":"'                + ''                      + '",'
+  CDATA+='"flaIcoModificado":'            + num$(0)                 + ','
+  CDATA+='"flaImgModificado":'            + num$(0)                 + ','
+  CDATA+='"ordCatalogo":'                 + num$(0)                 + ''
+  CDATA+='}'
+
+  # busca la tarifa
+  RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","api/iCatalogos?empresa=101&codcatalogo="+LCATALOGO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+  # la tarifa existe
+  If RETVAL=200 Then
+    # se actualizan datos
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","api/iCatalogos?empresa=101&codcatalogo="+LCATALOGO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("CATALOGOS","UPDATE",num$(RETVAL),num$(101),LCATALOGO,"","")
+  # la tarifa no existe
+  Else
+    # se crea la tarifa
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iCatalogos",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+    Call WRITE_LOG("CATALOGOS","CREATE",num$(RETVAL),num$(101),LCATALOGO,"","")
+  Endif
+  # Manage the errors
+  # 200 - OK
+  # 201 - OK
+  # 409 - Conflicto porque ya existe el registro
+  # 204 - Despues de un PUT, si es correcta la actualización da 204
+#    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+#    Endif
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Tabla relacionada con la estructura de los catálogos y con el árbol de navegación que se montará en la aplicación.
+#*
+#* Inserción de familias.
+#* Si la familia ya existe el webservice devuelve el error 409
+#* Si la familia se crea, el webService devuelve el valor 201.
+#*
+#*!
+Funprog IFAMILIAS(PFAMILIA)
+Value Char PFAMILIA()
+
+Local Integer RETVAL
+Local Integer I_ERROR
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+Local Char LCATALOGO(30)
+
+Local Integer I
+Local Char SEP(1)
+
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  If !clalev([F:YIFA]) Then : Local File YINAFAMILIAS [F:YIFA] : Endif
+  If !clalev([F:YIFX]) Then : Local File YINAFAMILIAS [F:YIFX] : Endif
+  If !clalev([F:YIFS]) Then : Local File YINAFAMSUBF  [F:YIFS] : Endif
+
+  LCATALOGO = "CATGENX3"
+  If PFAMILIA <> "" Then
+    Filter [F:YIFA] Where CODFAMILIA = PFAMILIA and NUMTAB = 20 and SUBFAMINA = 0
+  Else
+   Filter [F:YIFA] Where NUMTAB = 20 and SUBFAMINA = 0 and (CODFAMILIA = '1000' or CODFAMILIA = '6000' or CODFAMILIA = '7030' or CODFAMILIA = '8022' or CODFAMILIA = '8001')
+  Endif
+  For [F:YIFA] # FAMILIAS
+  # subfamilia
+    Filter [F:YIFS] Where FAMILIA = [F:YIFA]CODFAMILIA and SUBFAMILIA <> '' and SUBFAMILIA <> ' '
+    For [YIFS]
+      If vireblc([F:YIFS]SUBFAMILIA,2) <> '' Then
+        # planta 101
+        CDATA='{'
+        CDATA+='"codEmpresa":'                  + num$(101)                     + ','
+        CDATA+='"codCatalogo":"'                + LCATALOGO                     + '",'
+        CDATA+='"codFamilia":'                  + num$(([F:YIFS]FAMINA))     + ','
+        CDATA+='"codSubFamilia":'               + num$(([F:YIFS]SUBFAMINA )) + ','
+        CDATA+='"desFamilia":"'                 + [F:YIFS]DESSUBFAM            + '",'
+        CDATA+='"nomicoFamilia":"'              + ''                            + '",'
+        CDATA+='"ordFamilia":'                  + func GET_ORDERSUBFAM([F:YIFS]FAMILIA, [F:YIFS]SUBFAMILIA)       + ','
+        CDATA+='"flaIcoModificado":'            + num$(0)                       + ','
+        CDATA+='"obsFamilia":"'                 + ''                            + '",'
+        CDATA+='"nomImagenFam":"'               + ''                            + '",'
+        CDATA+='"flaImgModificado":'            + num$(0)                       + ''
+        CDATA+='}'
+        # busca la familia
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iFamilias?empresa=101&codcatalogo="+LCATALOGO+"&codfamilia="+num$([F:YIFS]FAMINA)+"&codsubfamilia="+num$([F:YIFS]SUBFAMINA),PCOD
+& ,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD,RESBODY)
+        # la familia existe
+        If RETVAL=200 Then
+          # se actualizan datos
+          RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iFamilias?empresa=101&codcatalogo="+LCATALOGO+"&codfamilia="+num$([F:YIFS]FAMINA)+"&codsubfamilia="+num$([F:YIFS]SUBFAMINA),
+& PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD,RESBODY)
+          Call WRITE_LOG("FAMILIAS","UPDATE",num$(RETVAL),num$(101),LCATALOGO,num$([F:YIFS]FAMINA),num$([F:YIFS]SUBFAMINA))
+        # la familia no existe
+        Else
+          # se crea la familia
+          RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iFamilias",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+          Call WRITE_LOG("FAMILIAS","CREATE",num$(RETVAL),num$(101),LCATALOGO,num$([F:YIFS]FAMINA),num$([F:YIFS]SUBFAMINA))
+        Endif
+        # Manage the errors
+        # 200 - OK
+        # 201 - OK
+        # 409 - Conflicto porque ya existe el registro
+        # 204 - Despues de un PUT, si es correcta la actualización da 204
+  #        If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+  #          Infbox "Error inserción: " +num$(RETVAL)
+  #          Infbox RESHEAD
+  #          Infbox RESBODY
+  #          Break
+  #        Else
+  ##          Infbox "INSERTADO CORRECTAMENTE"
+  #        Endif
+
+      Endif
+    Next YIFS
+    Filter [F:YIFS]
+
+  Next YIFA
+  Filter [F:YIFA]
+
+  Close Local File [YIFA],[YIFX]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+
+End RETVAL
+
+############################################################
+#**
+#* Tabla para introducir la información referente a los artículos.
+#*
+#* Artículos
+#*!
+Funprog IARTICULOS(PITMREF)
+Value Char PITMREF
+
+Local Integer RETVAL
+Local Char SUBFAM_GENERICA
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(1)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YITM]) Then : Local File ITMMASTER  [F:YITM] : Endif
+  If !clalev([F:YITS]) Then : Local File ITMSALES   [F:YITS] : Endif
+  If !clalev([F:YSTO]) Then : Local File STOCK      [F:YSTO] : Endif
+  If !clalev([F:YITV]) Then : Local File ITMMVT     [F:YITV] : Endif
+
+  # artículo concreto
+  If PITMREF <> "" Then
+    Read [F:YITM]ITM0 = PITMREF
+    If !fstat Then
+      #  para la planta 101 (categoría YNPT)
+      If [F:YITM]TCLCOD = "YNPT" or [F:YITM]TCLCOD = "YNTD" Then
+        If [F:YITM]TSICOD(0) <> '' Then # and [F:YITM]TSICOD(2)<>'' Then
+          Read [F:YITS]ITS0 = [F:YITM]ITMREF
+
+          CDATA='{'
+          CDATA+='"codEmpresa":'                  + num$(101)               + ','
+          CDATA+='"codArticulo":"'                + [F:YITM]ITMREF          + '",'
+          CDATA+='"desArticulo":"'                + ctrans([F:YITM]ITMDES1,'"','')         + '",'
+          CDATA+='"codEAN13":"'                   + [F:YITM]EANCOD          + '",'
+          CDATA+='"datMedidas":"'                 + ''                      + '",'
+          CDATA+='"datPeso":"'                    + num$([F:YITM]ITMWEI)    + '",'
+          CDATA+='"datVolumen":"'                 + num$([F:YITM]ITMVOU)    + '",'
+          CDATA+='"obsArticulo":"'                + ''                      + '",'
+          CDATA+='"hipArticulo":"'                + ''                      + '",'
+          If [F:YITS]MINQTY <> 0 Then
+            CDATA+='"valMinVenta":'                 + num$([F:YITS]MINQTY)    + ','
+          Else
+            CDATA+='"valMinVenta":'                 + num$(1)                 + ','
+          Endif
+          CDATA+='"valUniXCaja":'                 + num$([F:YITM]YUDCAJA)   + ','
+          CDATA+='"valUniXPalet":'                + num$([F:YITM]YUDPALET)  + ','
+          CDATA+='"valUniIncSencillo":'           + num$(1)                 + ','
+          CDATA+='"codTipoArticulo":"'            + [F:YITM]TCLCOD          + '",'
+          CDATA+='"codCatalogo":"'                + "CATGENX3"              + '",'
+          CDATA+='"codFamilia":'                  + func GET_FAMILIA([F:YITM]TSICOD(0))       + ','
+          CDATA+='"codSubFamilia":'               + func GET_SUBFAMILIA([F:YITM]TSICOD(0),[F:YITM]TSICOD(2))    + ','
+          CDATA+='"codGrupoPreciosArticulo":"'    + ''                      + '",'
+          CDATA+='"tpcIva":'                      + func GET_VAT([F:YITM]VACITM(0))            + ','
+          CDATA+='"tpcRe":'                       + func GET_VAT([F:YITM]VACITM(1))            + ','
+          CDATA+='"tpcIGIC":'                     + num$(0)                 + ','
+          CDATA+='"codModeloTyC":"'               + ''                      + '",'
+          CDATA+='"desModeloTyC":"'               + ''                      + '",'
+          Local Decimal LSTOCK,LSTOCKASIG : Raz LSTOCK,LSTOCKASIG
+          Filter [F:YSTO] Where STOFCY = "101" and ITMREF = [F:YITM]ITMREF and STA = "A" and (LOCTYP = "PIC" or LOCTYP = "ALM1" or LOCTYP = "ALM2")
+          Read [F:YSTO] First
+          If !fstat Then
+            For [YSTO]
+              LSTOCK += [F:YSTO]QTYPCU
+            Next
+            Read [F:YITV]ITV0 = [F:YITM]ITMREF;"101"
+            If !fstat Then
+              LSTOCKASIG = [F:YITV]PHYALL + [F:YITV]GLOALL
+            Endif
+            If (LSTOCK - LSTOCKASIG) > 10 Then
+              CDATA+='"stoDisponible":'           + num$((LSTOCK - LSTOCKASIG)) + ','
+            Else
+              CDATA+='"stoDisponible":'           + num$(0)                 + ','
+            Endif
+          Else
+            CDATA+='"stoDisponible":'             + num$(0)                 + ','
+          Endif
+          Filter [F:YSTO]
+          CDATA+='"stoPteRecibir":'               + num$(0)                 + ','
+          CDATA+='"datFechaEntradaPrevista":"'    + ''                      + '",'
+          If [F:YITM]ITMSTA = 1 or [F:YITM]ITMSTA = 2 or [F:YITM]ITMSTA = 3 Then
+            CDATA+='"ordArticulo":'               + num$(0)                 + ',' # activo
+          Else
+            CDATA+='"ordArticulo":'               + num$(-1)                + ',' # inactivo
+          Endif
+          CDATA+='"preArticuloGen":'              + num$(0)                 + ','
+          CDATA+='"datNivel1":"'                  + ''                      + '",'
+          CDATA+='"datNivel2":"'                  + ''                      + '",'
+          CDATA+='"codEmpSuministradora":'        + num$(101)               + ','
+          CDATA+='"flaNoAplicarDtoPP":'           + num$(0)                 + ','
+          CDATA+='"datMarcas":"'                  + ''                      + '",'
+          CDATA+='"prePuntos":'                   + num$(0)                 + ','
+          CDATA+='"flaMuestra":'                  + num$(0)                 + ''
+          CDATA+='}'
+
+          RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iArticulos?empresa=101&codarticulo="+[F:YITM]ITMREF,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+
+          # el artículo existe
+          If RETVAL=200 Then
+            # se actualiza el artículo
+            RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iArticulos?empresa=101&codarticulo="+[F:YITM]ITMREF,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+            Call WRITE_LOG("ARTICULOS","UPDATE",num$(RETVAL),num$(101),[F:YITM]ITMREF,[F:YITM]ITMDES1,[F:YITM]EANCOD)
+          # el artículo no existe
+          Else
+            # se crea el artículo
+            RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iArticulos",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+            Call WRITE_LOG("ARTICULOS","CREATE",num$(RETVAL),num$(101),[F:YITM]ITMREF,[F:YITM]ITMDES1,[F:YITM]EANCOD)
+
+          Endif
+        Endif
+        # Manage the errors
+        # 200 - OK
+        # 201 - OK
+        # 409 - Conflicto porque ya existe el registro
+        # 204 - Despues de un PUT, si es correcta la actualización da 204
+#        If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#          Infbox "Error inserción: " +num$(RETVAL)
+#          Infbox RESHEAD
+#          Infbox RESBODY
+#        Else
+#          Infbox "INSERTADO CORRECTAMENTE"
+#        Endif
+      Endif
+    Endif
+  # todos los artículos
+  Else
+    Filter [F:YITM] Where (TCLCOD = "YNPT" or TCLCOD = 'YNTD') and (TSICOD(0) = '1000' or TSICOD(0) = '6000' or TSICOD(0) = '7030' or TSICOD(0) = '8022' or TSICOD(0) = '8001')
+&   and (UPDDAT >= date$ - GDIAS or CREDAT >= date$ - GDIAS)
+    For [YITM]
+      If [F:YITM]TSICOD(0) <> '' Then
+        Read [F:YITS]ITS0 = [F:YITM]ITMREF
+          CDATA='{'
+          CDATA+='"codEmpresa":'                  + num$(101)                     + ','
+          CDATA+='"codArticulo":"'                + [F:YITM]ITMREF                + '",'
+          CDATA+='"desArticulo":"'                + ctrans([F:YITM]ITMDES1,'"','')                + '",'
+          CDATA+='"codEAN13":"'                   + [F:YITM]EANCOD                + '",'
+          CDATA+='"datMedidas":"'                 + ''                            + '",'
+          CDATA+='"datPeso":"'                    + num$([F:YITM]ITMWEI)          + '",'
+          CDATA+='"datVolumen":"'                 + num$([F:YITM]ITMVOU)          + '",'
+          CDATA+='"obsArticulo":"'                + ''                            + '",'
+          CDATA+='"hipArticulo":"'                + ''                            + '",'
+          If [F:YITS]MINQTY <> 0 Then
+            CDATA+='"valMinVenta":'                 + num$([F:YITS]MINQTY)    + ','
+          Else
+            CDATA+='"valMinVenta":'                 + num$(1)                 + ','
+          Endif
+          CDATA+='"valUniXCaja":'                 + num$([F:YITM]YUDCAJA)         + ','
+          CDATA+='"valUniXPalet":'                + num$([F:YITM]YUDPALET)        + ','
+          CDATA+='"valUniIncSencillo":'           + num$(1)                       + ','
+          CDATA+='"codTipoArticulo":"'            + [F:YITM]TCLCOD                + '",'
+           CDATA+='"codCatalogo":"'                + "CATGENX3"                      + '",'
+          CDATA+='"codFamilia":'                  + func GET_FAMILIA([F:YITM]TSICOD(0))       + ','
+          CDATA+='"codSubFamilia":'               + func GET_SUBFAMILIA([F:YITM]TSICOD(0),[F:YITM]TSICOD(2))    + ','
+          CDATA+='"codGrupoPreciosArticulo":"'    + ''                            + '",'
+          CDATA+='"tpcIva":'                      + func GET_VAT([F:YITM]VACITM(0))                  + ','
+          CDATA+='"tpcRe":'                       + func GET_VAT([F:YITM]VACITM(1))                  + ','
+          CDATA+='"tpcIGIC":'                     + num$(0)                       + ','
+          CDATA+='"codModeloTyC":"'               + ''                            + '",'
+          CDATA+='"desModeloTyC":"'               + ''                            + '",'
+          Local Decimal LSTOCK,LSTOCKASIG : Raz LSTOCK,LSTOCKASIG
+          Filter [F:YSTO] Where STOFCY = "101" and ITMREF = [F:YITM]ITMREF and STA = "A" and (LOCTYP = "PIC" or LOCTYP = "ALM1" or LOCTYP = "ALM2")
+          Read [F:YSTO] First
+          If !fstat Then
+            For [YSTO]
+              LSTOCK += [F:YSTO]QTYPCU
+            Next
+            Read [F:YITV]ITV0 = [F:YITM]ITMREF;"101"
+            If !fstat Then
+              LSTOCKASIG = [F:YITV]PHYALL + [F:YITV]GLOALL
+            Endif
+            If (LSTOCK - LSTOCKASIG) > 10 Then
+              CDATA+='"stoDisponible":'           + num$((LSTOCK - LSTOCKASIG)) + ','
+            Else
+              CDATA+='"stoDisponible":'           + num$(0)                       + ','
+            Endif
+          Else
+            CDATA+='"stoDisponible":'             + num$(0)                       + ','
+          Endif
+          Filter [F:YSTO]
+          CDATA+='"stoPteRecibir":'               + num$(0)                       + ','
+          CDATA+='"datFechaEntradaPrevista":"'    + ''                            + '",'
+          If [F:YITM]ITMSTA = 1 or [F:YITM]ITMSTA = 2 or [F:YITM]ITMSTA = 3 Then
+            CDATA+='"ordArticulo":'               + num$(0)                 + ',' # activo
+          Else
+            CDATA+='"ordArticulo":'               + num$(-1)                + ',' # inactivo
+          Endif
+          CDATA+='"preArticuloGen":'              + num$(0)                       + ','
+          CDATA+='"datNivel1":"'                  + ''                            + '",'
+          CDATA+='"datNivel2":"'                  + ''                            + '",'
+          CDATA+='"codEmpSuministradora":'        + num$(101)                     + ','
+          CDATA+='"flaNoAplicarDtoPP":'           + num$(0)                       + ','
+          CDATA+='"datMarcas":"'                  + ''                            + '",'
+          CDATA+='"prePuntos":'                   + num$(0)                       + ','
+          CDATA+='"flaMuestra":'                  + num$(0)                       + ''
+          CDATA+='}'
+
+          RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iArticulos?empresa=101&codarticulo="+[F:YITM]ITMREF,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+
+          # el artículo existe
+          If RETVAL=200 Then
+            # se actualiza el artículo
+            RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iArticulos?empresa=101&codarticulo="+[F:YITM]ITMREF,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+            Call WRITE_LOG("ARTICULOS","UPDATE",num$(RETVAL),num$(101),[F:YITM]ITMREF,[F:YITM]ITMDES1,[F:YITM]EANCOD)
+          # el artículo no existe
+          Else
+            # se crea el artículo
+            RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iArticulos",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+            Call WRITE_LOG("ARTICULOS","CREATE",num$(RETVAL),num$(101),[F:YITM]ITMREF,[F:YITM]ITMDES1,[F:YITM]EANCOD)
+          Endif
+        Endif
+        # Manage the errors
+        # 200 - OK
+        # 201 - OK
+        # 409 - Conflicto porque ya existe el registro
+        # 204 - Despues de un PUT, si es correcta la actualización da 204
+#        If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#          Infbox "Error inserción: " +num$(RETVAL)
+#          Infbox RESHEAD
+#          Infbox RESBODY
+#        Else
+#          Infbox "INSERTADO CORRECTAMENTE"
+#        Endif
+    Next
+    Filter [F:YITM]
+  Endif
+  Filter [F:YITM]
+  Close Local File [YITM],[YITS],[YSTO],[YITV]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Tarifas que se han de exportar a cada agente.
+#*
+#* Agentes - tarifa
+#*!
+Funprog IAGENTESLTARS(PAGENTE,PTARIFA)
+Value Char PAGENTE,PTARIFA
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YREP]) Then : Local File SALESREP [F:YREP] : Endif
+  If !clalev([F:YITF]) Then : Local File YINATARIFAS [F:YITF] : Endif
+  If PAGENTE = "" Then
+    Filter [F:YREP] Where UPDDAT >= date$ - GDIAS
+  Else
+    Filter [F:YREP] Where REPNUM = PAGENTE
+  Endif
+  For [YREP]
+    If PTARIFA <> "" Then
+      Filter [F:YITF] Where CODTARIFA = PTARIFA
+    Endif
+    For [YITF]
+      # planta 101
+      CDATA="{"
+      CDATA+='"codEmpresa":'                  + num$(101)               + ','
+      CDATA+='"codAgente":"'                  + [F:YREP]REPNUM          + '",'
+      CDATA+='"codTarifa":"'                  + [F:YITF]CODTARIFA       + '"'
+      CDATA+='}'
+
+      # busca el representante/tarifa
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iAgentesLTars?empresa=101&codagente="+[F:YREP]REPNUM+"&codtarifa="+[F:YITF]CODTARIFA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',
+& RESHEAD, RESBODY)
+      # el representante/tarifa existe
+      If RETVAL=200 Then
+        # se actualizan datos
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iAgentesLTars?empresa=101&codagente="+[F:YREP]REPNUM+"&codtarifa="+[F:YITF]CODTARIFA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',
+& RESHEAD, RESBODY)
+        Call WRITE_LOG("AGENTESTAR","UPDATE",num$(RETVAL),num$(101),[F:YREP]REPNUM,[F:YITF]CODTARIFA,"")
+      # el representante/tarifa no existe
+      Else
+        # se crea el representante/tarifa
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iAgentesLTars",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+        Call WRITE_LOG("AGENTESTAR","CREATE",num$(RETVAL),num$(101),[F:YREP]REPNUM,[F:YITF]CODTARIFA,"")
+      Endif
+      # Manage the errors
+      # 200 - OK
+      # 201 - OK
+      # 409 - Conflicto porque ya existe el registro
+      # 204 - Despues de un PUT, si es correcta la actualización da 204
+#      If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#        Infbox "Error inserción: " +num$(RETVAL)
+#        Infbox RESHEAD
+#        Infbox RESBODY
+#        Break
+#      Else
+##        Infbox "INSERTADO CORRECTAMENTE"
+#      Endif
+
+      # planta 201
+      CDATA="{"
+      CDATA+='"codEmpresa":'                  + num$(201)               + ','
+      CDATA+='"codAgente":"'                  + [F:YREP]REPNUM          + '",'
+      CDATA+='"codTarifa":"'                  + [F:YITF]CODTARIFA       + '"'
+      CDATA+='}'
+
+      # busca el representante/tarifa
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iAgentesLTars?empresa=201&codagente="+[F:YREP]REPNUM+"&codtarifa="+[F:YITF]CODTARIFA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',
+& RESHEAD, RESBODY)
+      # el representante/tarifa existe
+      If RETVAL=200 Then
+        # se actualizan datos
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iAgentesLTars?empresa=201&codagente="+[F:YREP]REPNUM+"&codtarifa="+[F:YITF]CODTARIFA,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',
+& RESHEAD, RESBODY)
+        Call WRITE_LOG("AGENTESTAR","UPDATE",num$(RETVAL),num$(201),[F:YREP]REPNUM,[F:YITF]CODTARIFA,"")
+      # el representante/tarifa no existe
+      Else
+        # se crea el representante/tarifa
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iAgentesLTars",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+        Call WRITE_LOG("AGENTESTAR","CREATE",num$(RETVAL),num$(201),[F:YREP]REPNUM,[F:YITF]CODTARIFA,"")
+      Endif
+      # Manage the errors
+      # 200 - OK
+      # 201 - OK
+      # 409 - Conflicto porque ya existe el registro
+      # 204 - Despues de un PUT, si es correcta la actualización da 204
+#      If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#        Infbox "Error inserción: " +num$(RETVAL)
+#        Infbox RESHEAD
+#        Infbox RESBODY
+#        Break
+#      Else
+##        Infbox "INSERTADO CORRECTAMENTE"
+#      Endif
+    Next YITF
+    If PTARIFA <> "" Then
+      Filter [F:YITF]
+    Endif
+  Next YREP
+  Filter [F:YREP]
+  Close Local File [YREP],[YITF]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Tarifas que se han de exportar a cada agente.
+#*
+#* Agentes - tarifa
+#*!
+Funprog IAGENTESLCAT(PAGENTE)
+Value Char PAGENTE
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+Local Char LCATALOGO(30)
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YREP]) Then : Local File SALESREP [F:YREP] : Endif
+  If PAGENTE = "" Then
+    Filter [F:YREP] Where UPDDAT >= date$ - GDIAS
+  Else
+    Filter [F:YREP] Where REPNUM = PAGENTE #and (FCY = "101" or FCY = "201")
+  Endif
+  For [YREP]
+    # planta 101
+    LCATALOGO = "CATGENX3"
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$(101)               + ','
+    CDATA+='"codAgente":"'                  + [F:YREP]REPNUM          + '",'
+    CDATA+='"codCatalogo":"'                + LCATALOGO               + '"'
+    CDATA+='}'
+
+    # busca el representante/categoría
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iAgentesLCats?empresa=101&codagente="+[F:YREP]REPNUM+"&codcatalogo="+LCATALOGO,PCOD,PVAL,HCOD,HVAL,CDATA,0,'',
+&   RESHEAD, RESBODY)
+    # el representante/categoría existe
+    If RETVAL=200 Then
+      # se actualizan datos
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","api/iAgentesLCats?empresa=101&codagente="+[F:YREP]REPNUM+"codcatalogo="+LCATALOGO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD,RESBODY)
+      Call WRITE_LOG("AGENTESCAT","UPDATE",num$(RETVAL),num$(101),[F:YREP]REPNUM,LCATALOGO,"")
+      # el representante/categoría no existe
+    Else
+      # se crea el representante/categoría
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iAgentesLCats",PCOD,PVAL,HCOD,HVAL,CDATA,0,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("AGENTESCAT","CREATE",num$(RETVAL),num$(101),[F:YREP]REPNUM,LCATALOGO,"")
+    Endif
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+#      If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#        Infbox "Error inserción: " +num$(RETVAL)
+#        Infbox RESHEAD
+#        Infbox RESBODY
+##        Break
+#      Else
+##        Infbox "INSERTADO CORRECTAMENTE"
+#      Endif
+  #  Next LCATALOGO
+  Next YREP
+  Filter [F:YREP]
+  Close Local File [YREP]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Datos de todos los clientes que deberá manejar el programa.
+#*
+#* Clientes
+#*
+#*!
+Funprog ICLIENTES(PBPRSHO)
+Value Char    PBPRSHO
+
+Local Integer RETVAL, I
+Local Char LREP
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([YBPR]) Then : Local File BPARTNER   [YBPR] : Endif
+  If !clalev([YBPC]) Then : Local File BPCUSTOMER [YBPC] : Endif
+  If !clalev([YBID]) Then : Local File BID        [YBID] : Endif
+  If !clalev([YBDL]) Then : Local File BPDLVCUST  [YBDL] : Endif
+
+  If PBPRSHO <> "" Then
+    Filter [F:YBPR] Where BPRSHO = PBPRSHO and BPCFLG = 2# SOLO CLIENTES
+  Else
+    Filter [F:YBPR] Where BPCFLG = 2 and (UPDDAT >= date$ - GDIAS or CREDAT >= date$ - GDIAS)
+  Endif
+
+  For [YBPR]
+    # planta 101
+    Read [F:YBPC]BPC0 = [F:YBPR]BPRNUM
+    Read [F:YBID]BID2 = 1;[F:YBPR]BPRNUM;[F:YBPR]BPAADD
+    Read [F:YBDL]BPD0=[F:YBPR]BPRNUM;[F:YBPR]BPAADD
+    If vireblc([F:YBDL]REP(0),2) <> ''  Then
+      LREP = vireblc([F:YBDL]REP(0),2)
+    Else
+      If vireblc([F:YBPC]REP,2) <> '' Then
+        LREP = vireblc([F:YBPC]REP,2)
+      Else
+        LREP = '00'
+      Endif
+    Endif
+      CDATA='{'
+      CDATA+='"codEmpresa":'                  + num$(101)               + ','
+      CDATA+='"codCliente": "'                + [F:YBPR]BPRSHO          + '",'
+      CDATA+='"nomCliente": "'                + ctrans([F:YBPR]BPRNAM,'"' ,"")          + '",'
+      CDATA+='"rsoCliente": "'                + ctrans([F:YBPR]BPRNAM,'"' ,"")          + '",'
+      CDATA+='"cifCliente": "'                + [F:YBPR]CRN             + '",'
+      CDATA+='"codZona": "'                   + num$(0)                 + '",'
+      CDATA+='"codAgente": "'                 + LREP                     + '",'
+      If vireblc([F:YBPC]TSCCOD(1),2) = '' Then
+        CDATA+='"codTipoCliente": "'          + "00"                      + '",'
+      Else
+        CDATA+='"codTipoCliente": "'            + right$([F:YBPC]TSCCOD(1),2)       + '",'
+      Endif
+      CDATA+='"tipIVA": "'                    + func GET_TIPOIVA([F:YBPC]VACBPR) + '",'
+      CDATA+='"tpcDto01": '                   + func GET_DTOCLIE([F:YBPR]BPRNUM) + ','
+      CDATA+='"tpcDto02": '                   + num$(0)                 + ','
+      CDATA+='"tpcDtoPp": '                   + ctrans(num$([F:YBPC]INVDTAAMT(1)),',','.') + ','
+      CDATA+='"codFormaPago": "'              + [F:YBPC]PTE             + '",'
+      CDATA+='"flaNvoCliente": '              + num$(0)                 + ','
+      CDATA+='"flaExpCliente": '              + num$(0)                 + ','
+      If [F:YBPC]TSCCOD(0) = 'YC' Then
+        CDATA+='"codTarifa": "'                 + 'YN40C'               + '",'
+      Elsif [F:YBPC]TSCCOD(0) = 'YP' Then
+        CDATA+='"codTarifa": "'                 + 'YN40'                + '",'
+      Else
+        CDATA+='"codTarifa": "'                 + ''                    + '",'
+      Endif
+      CDATA+='"codGrupoPreciosCliente": "'    + [F:YBPC]TSCCOD(0)       + '",'
+      If [F:YBPC]BPCSTA = 2 Then
+        CDATA+='"flaObsoleto": '              + num$(0)                 + ',' # activo
+      Else
+        CDATA+='"flaObsoleto": '              + num$(0)                 + ',' # inactivo
+      Endif
+      CDATA+='"impPendienteRiesgo": '         + num$(0)                 + ','
+      CDATA+='"impVencidoRiesgo": '           + num$(0)                 + ','
+      CDATA+='"impImpagadoRiesgo": '          + num$(0)                 + ','
+      CDATA+='"impCoberturaRiesgo": '         + num$(0)                 + ','
+      CDATA+='"flaBloqueaClienteRiesgo": '    + num$(0)                 + ','
+      Case [F:YBPR]LAN
+        When "SPA"    :   CDATA+='"codIdioma": "' + 'es'                + '",'
+        When Default  :   CDATA+='"codIdioma": "' + 'es'                + '",'
+      Endcase
+      CDATA+='"datIBAN": "'                   + [F:YBID]IBAN + [F:YBID]BIDNUM + '",'
+      CDATA+='"codSector": "'                 + ''                      + '",'
+      CDATA+='"datBlog": "'                   + ''                      + '",'
+      CDATA+='"impFacturacion": '             + num$(0)                 + ','
+      CDATA+='"obsClienteNoEdi": "'           + 'NO HA COMPRADO NUNCA'  + '",'
+      CDATA+='"obsClienteEdi": "'             + ''                      + '",'
+      CDATA+='"Custom1": "'                   + ''                      + '",'
+      CDATA+='"Custom2": "'                   + ''                      + '",'
+      CDATA+='"Custom3": "'                   + ''                      + '",'
+      CDATA+='"Custom4": "'                   + ''                      + '",'
+      CDATA+='"Custom5": "'                   + ''                      + '",'
+      CDATA+='"fecAltaCliente": "'            + num$([F:YBPR]CREDATTIM) + '",'
+      CDATA+='"codMonedaRiesgo": "'           + [F:YBPR]CUR             + '"'
+      CDATA+='}'
+
+      # busca el cliente
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iClientes?empresa=101&codcliente="+[F:YBPC]BPCSHO,PCOD,PVAL,HCOD,HVAL,'{}',0 ,'',RESHEAD, RESBODY)
+      # el cliente existe
+      If RETVAL=200 Then
+        # se actualiza el cliente
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iClientes?empresa=101&codcliente="+[F:YBPC]BPCSHO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+        Call WRITE_LOG("CLIENTES","UPDATE",num$(RETVAL),num$(101),[F:YBPR]BPRSHO,[F:YBPR]BPRNAM,[F:YBPR]CRN)
+      # el cliente no existe
+      Else
+        # se crea el cliente
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iClientes",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+        Call WRITE_LOG("CLIENTES","CREATE",num$(RETVAL),num$(101),[F:YBPR]BPRSHO,[F:YBPR]BPRNAM,[F:YBPR]CRN)
+      Endif
+
+      # Manage the errors
+      # 200 - OK
+      # 201 - OK
+      # 409 - Conflicto porque ya existe el registro
+      # 204 - Despues de un PUT, si es correcta la actualización da 204
+      If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+  #      Infbox "Error inserción: " +num$(RETVAL)
+  #      Infbox RESHEAD
+  #      Infbox RESBODY
+  #      Break
+  #    Else
+  ##      Infbox "INSERTADO CORRECTAMENTE"
+      Endif
+
+    # Manage the errors
+    # 200 - OK
+    # 201 - OK
+    # 409 - Conflicto porque ya existe el registro
+    # 204 - Despues de un PUT, si es correcta la actualización da 204
+    If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#      Infbox "Error inserción: " +num$(RETVAL)
+#      Infbox RESHEAD
+#      Infbox RESBODY
+#      Break
+#    Else
+##      Infbox "INSERTADO CORRECTAMENTE"
+    Endif
+
+  Next
+  If PBPRSHO <> "" Then
+    Filter [F:YBPR]
+  Endif
+  Close Local File [YBPR],[YBPC],[YBID]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+#######################################################
+Funprog ICLIENTESLDIR(PBPRSHO)
+Value Char    PBPRSHO
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  Local Integer LINDIRCLI
+  If !clalev([F:YBR2]) Then : Local File BPARTNER   [F:YBR2] : Endif
+  If !clalev([F:YBA2]) Then : Local File BPADDRESS  [F:YBA2] : Endif
+  If !clalev([F:YBC2]) Then : Local File BPCUSTOMER [F:YBC2] : Endif
+  If PBPRSHO <> "" Then
+    Filter [F:YBR2] Where BPRSHO = PBPRSHO  and BPCFLG = 2 and (UPDDAT >= date$ - GDIAS or CREDAT >= date$ - GDIAS)
+  Else
+    Filter [F:YBR2] Where BPCFLG = 2 and (UPDDAT >= date$ - GDIAS or CREDAT >= date$ - GDIAS)
+  Endif
+
+  For [YBR2]
+    Read [F:YBC2]BPC0 = [F:YBR2]BPRNUM
+    # busco direcciones del cliente
+    Filter [F:YBA2] Where BPATYP = 1 and BPANUM = [F:YBR2]BPRNUM  and (UPDDAT >= date$ - GDIAS or CREDAT >= date$ - GDIAS)
+    Raz LINDIRCLI
+    LINDIRCLI = 1
+
+    For [YBA2]
+      # planta 101
+      CDATA='{'
+      CDATA+='"codEmpresa":'                + num$(101)                   + ','
+      CDATA+='"codCliente": "'              + [F:YBR2]BPRSHO              + '",'
+      CDATA+='"linDirCli": '                + num$(LINDIRCLI)             + ','
+      CDATA+='"nomDirCli": "'               + [F:YBA2]BPADES              + '",'
+      CDATA+='"rsoDirCli": "'               + [F:YBR2]BPRNAM              + '",'
+      CDATA+='"datCalleDirCli": "'          + [F:YBA2]BPAADDLIG(0) + ' '  + [F:YBA2]BPAADDLIG(1) + '",'
+      CDATA+='"codPostalDirCli": "'         + [F:YBA2]POSCOD              + '",'
+      CDATA+='"datPoblacionDirCli": "'      + [F:YBA2]CTY                 + '",'
+      CDATA+='"datProvinciaDirCli": "'      + [F:YBA2]SAT                 + '",'
+      CDATA+='"datPaisDirCli": "'           + [F:YBA2]CRYNAM              + '",'
+      CDATA+='"datContactoDirCli": "'       + ''                          + '",'
+      CDATA+='"datTelefonoDirCli": "'       + [F:YBA2]TEL(0)              + '",'
+      CDATA+='"datFaxDirCli": "'            + [F:YBA2]FAX(0)              + '",'
+      CDATA+='"datEmailDirCli": "'          + [F:YBA2]WEB(0)              + '",'
+      CDATA+='"hipWebDirCli": "'            + [F:YBA2]FCYWEB              + '",'
+      CDATA+='"codSuDirCli": "'             + ''                          + '",'
+      CDATA+='"valLatitud": '               + num$(0)                     + ','
+      CDATA+='"valLongitud": '              + num$(0)                     + ','
+      CDATA+='"datTelMovilDirCli": "'       + ''                          + '",'
+      CDATA+='"codAgente": "'               + [F:YBC2]REP                 + '",'
+      CDATA+='"flaNvoDirCli": '             + num$(0)                     + ''
+      CDATA+='}'
+
+      # busca la dirección del cliente
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iClientesLDirs?empresa=101&codcliente="+[F:YBR2]BPRSHO+"&lindircli="+num$(LINDIRCLI),PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD,
+& RESBODY)
+      # la dirección existe
+      If RETVAL=200 Then
+        # se actualiza la dirección
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iClientesLDirs?empresa=101&codcliente="+[F:YBR2]BPRSHO+"&lindircli="+num$(LINDIRCLI),PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD,
+& RESBODY)
+        Call WRITE_LOG("CLIENTESDIR","UPDATE",num$(RETVAL),"101",[F:YBR2]BPRSHO,[F:YBR2]BPRNAM,[F:YBA2]BPAADD)
+      # la dirección no existe
+      Else
+        # se crea la dirección
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","POST","/api/iClientesLDirs",PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+        Call WRITE_LOG("CLIENTESDIR","CREATE",num$(RETVAL),"101",[F:YBR2]BPRSHO,[F:YBR2]BPRNAM,[F:YBA2]BPAADD)
+      Endif
+
+      # Manage the errors
+      # 200 - OK
+      # 201 - OK
+      # 409 - Conflicto porque ya existe el registro
+      # 204 - Despues de un PUT, si es correcta la actualización da 204
+      # 404 - Registro no encontrao
+#      If RETVAL<>200 and RETVAL<>201 and RETVAL<>409 and RETVAL<>204
+#        Infbox "Error inserción: " +num$(RETVAL)
+#        Infbox RESHEAD
+#        Infbox RESBODY
+#        Break
+#      Else
+##        Infbox "INSERTADO CORRECTAMENTE"
+#      Endif
+
+      LINDIRCLI += 1
+
+    Next YBA2
+  Next YBR2
+  If PBPRSHO <> "" Then
+    Filter [F:YBR2]
+  Endif
+
+  Close Local File [YBR2],[YBA2],[YBC2]
+
+  Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End RETVAL
+
+############################################################
+#**
+#* Función para desactivar un artículo en Inacatalog al eliminarlo de Sage
+#*
+#* Artículos
+#*!
+Subprog DESACTIVAARTICULO(PITMREF)
+Value Char PITMREF
+
+Local Integer RETVAL
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(1)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([F:YITM]) Then : Local File ITMMASTER  [F:YITM] : Endif
+  If !clalev([F:YITS]) Then : Local File ITMSALES   [F:YITS] : Endif
+  If !clalev([F:YSTO]) Then : Local File STOCK      [F:YSTO] : Endif
+  If !clalev([F:YITV]) Then : Local File ITMMVT     [F:YITV] : Endif
+
+  Read [F:YITM]ITM0 = PITMREF
+  If !fstat Then
+    #  para la planta 101 (categoría YNPT)
+    If [F:YITM]TCLCOD = "YNPT" or [F:YITM]TCLCOD = "YNTD" Then
+      If [F:YITM]TSICOD(0) <> '' Then # and [F:YITM]TSICOD(2)<>'' Then
+        Read [F:YITS]ITS0 = [F:YITM]ITMREF
+
+        CDATA='{'
+        CDATA+='"codEmpresa":'                  + num$(101)               + ','
+        CDATA+='"codArticulo":"'                + [F:YITM]ITMREF          + '",'
+        CDATA+='"desArticulo":"'                + ctrans([F:YITM]ITMDES1,'"','')                            + '",'
+        CDATA+='"codEAN13":"'                   + [F:YITM]EANCOD          + '",'
+        CDATA+='"datMedidas":"'                 + ''                      + '",'
+        CDATA+='"datPeso":"'                    + num$([F:YITM]ITMWEI)    + '",'
+        CDATA+='"datVolumen":"'                 + num$([F:YITM]ITMVOU)    + '",'
+        CDATA+='"obsArticulo":"'                + ''                      + '",'
+        CDATA+='"hipArticulo":"'                + ''                      + '",'
+        If [F:YITS]MINQTY <> 0 Then
+          CDATA+='"valMinVenta":'               + num$([F:YITS]MINQTY)    + ','
+        Else
+          CDATA+='"valMinVenta":'               + num$(1)                 + ','
+        Endif
+        CDATA+='"valUniXCaja":'                 + num$([F:YITM]YUDCAJA)   + ','
+        CDATA+='"valUniXPalet":'                + num$([F:YITM]YUDPALET)  + ','
+        CDATA+='"valUniIncSencillo":'           + num$(1)                 + ','
+        CDATA+='"codTipoArticulo":"'            + [F:YITM]TCLCOD          + '",'
+        CDATA+='"codCatalogo":"'                + "CATGENX3"              + '",'
+        CDATA+='"codFamilia":'                  + func GET_FAMILIA([F:YITM]TSICOD(0))        + ','
+        CDATA+='"codSubFamilia":'               + func GET_SUBFAMILIA([F:YITM]TSICOD(0),[F:YITM]TSICOD(2))  + ','
+        CDATA+='"codGrupoPreciosArticulo":"'    + ''                      + '",'
+        CDATA+='"tpcIva":'                      + func GET_VAT([F:YITM]VACITM(0))                           + ','
+        CDATA+='"tpcRe":'                       + func GET_VAT([F:YITM]VACITM(1))                           + ','
+        CDATA+='"tpcIGIC":'                     + num$(0)                 + ','
+        CDATA+='"codModeloTyC":"'               + ''                      + '",'
+        CDATA+='"desModeloTyC":"'               + ''                      + '",'
+        Local Decimal LSTOCK,LSTOCKASIG : Raz LSTOCK,LSTOCKASIG
+        Filter [F:YSTO] Where STOFCY = "101" and ITMREF = [F:YITM]ITMREF and STA = "A" and (LOCTYP = "PIC" or LOCTYP = "ALM1" or LOCTYP = "ALM2")
+        Read [F:YSTO] First
+        If !fstat Then
+          For [YSTO]
+            LSTOCK += [F:YSTO]QTYPCU
+          Next
+          Read [F:YITV]ITV0 = [F:YITM]ITMREF;"101"
+          If !fstat Then
+            LSTOCKASIG = [F:YITV]PHYALL + [F:YITV]GLOALL
+          Endif
+          If (LSTOCK - LSTOCKASIG) > 10 Then
+            CDATA+='"stoDisponible":'           + num$((LSTOCK - LSTOCKASIG))                               + ','
+          Else
+            CDATA+='"stoDisponible":'           + num$(0)                 + ','
+          Endif
+        Else
+          CDATA+='"stoDisponible":'             + num$(0)                 + ','
+        Endif
+        Filter [F:YSTO]
+        CDATA+='"stoPteRecibir":'               + num$(0)                 + ','
+        CDATA+='"datFechaEntradaPrevista":"'    + ''                      + '",'
+        CDATA+='"ordArticulo":'                 + num$(-1)                + ',' # inactivo
+        CDATA+='"preArticuloGen":'              + num$(0)                 + ','
+        CDATA+='"datNivel1":"'                  + ''                      + '",'
+        CDATA+='"datNivel2":"'                  + ''                      + '",'
+        CDATA+='"codEmpSuministradora":'        + num$(101)               + ','
+        CDATA+='"flaNoAplicarDtoPP":'           + num$(0)                 + ','
+        CDATA+='"datMarcas":"'                  + ''                      + '",'
+        CDATA+='"prePuntos":'                   + num$(0)                 + ','
+        CDATA+='"flaMuestra":'                  + num$(0)                 + ''
+        CDATA+='}'
+
+        RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iArticulos?empresa=101&codarticulo="+[F:YITM]ITMREF,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+
+        # el artículo existe
+        If RETVAL=200 Then
+          # se actualiza el artículo
+          RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iArticulos?empresa=101&codarticulo="+[F:YITM]ITMREF,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+          Call WRITE_LOG("ARTICULOS","UPDATE",num$(RETVAL),num$(101),[F:YITM]ITMREF,[F:YITM]ITMDES1,[F:YITM]EANCOD)
+        Endif
+      Endif
+    Endif
+  Endif
+  Filter [F:YITM]
+  Close Local File [YITM],[YITS],[YSTO],[YITV]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End
+
+############################################################
+#**
+#* Función para desactivar un cliente en Inacatalog al eliminarlo de Sage
+#*
+#* Clientes
+#*
+#*!
+Subprog DESACTIVACLIENTE(PBPRSHO)
+Value Char    PBPRSHO
+
+Local Integer RETVAL, I
+
+# No additional parameter nor additional header value are given here (only the values given in ORDER definition are used)
+Local Char PCOD(100)(1..10),PVAL(100)(1..10),HCOD(100)(1..10),HVAL(100)(1..10)
+
+# Contains the result header and body
+Local Clbfile RESHEAD(0),RESBODY(0),CDATA(0)
+
+Local Integer I
+
+  # Add a parameter
+  #PCOD(1)="USERID"
+  #PVAL(1)='"'+GACTX.LOGIN+'"'
+
+  # Add two header parameters (it would probably be better to define them in the web service definition)
+  #HCOD(1)   =  "Authorization"
+  #HVAL(1)    = '"X3User:inacatalogapi2"'
+  #HVAL(1)    = '"X3User:AIT51"'
+  #HCOD(2)="Content-Type"
+  #HVAL(1)='"fr, en-gb;q=0.8, en;q=0.7"'
+  HCOD(1)="content-type"
+  HVAL(1)='"application/json; charset=utf-8"'
+
+  #HCOD(3)="Content-Length"
+  #HVAL(3)="87"
+
+  If !clalev([YBPR]) Then : Local File BPARTNER   [YBPR] : Endif
+  If !clalev([YBPC]) Then : Local File BPCUSTOMER [YBPC] : Endif
+  If !clalev([YBID]) Then : Local File BID        [YBID] : Endif
+  If !clalev([YBDL]) Then : Local File BPDLVCUST  [YBDL] : Endif
+
+  Filter [F:YBPR] Where BPRSHO = PBPRSHO and BPCFLG = 2# SOLO CLIENTES
+  Read [F:YBPR] First
+
+  # planta 101
+  Read [F:YBPC]BPC0 = [F:YBPR]BPRNUM
+  Read [F:YBID]BID2 = 1;[F:YBPR]BPRNUM;[F:YBPR]BPAADD
+  Read [F:YBDL]BPD0=[F:YBPR]BPRNUM;[F:YBPR]BPAADD #  First
+  If vireblc([F:YBDL]REP(0),2) <> ''  Then
+    LREP = vireblc([F:YBDL]REP(0),2)
+  Else
+    If vireblc([F:YBPC]REP,2) <> '' Then
+      LREP = vireblc([F:YBPC]REP,2)
+    Else
+      LREP = '00'
+    Endif
+  Endif
+    CDATA='{'
+    CDATA+='"codEmpresa":'                  + num$(101)               + ','
+    CDATA+='"codCliente": "'                + [F:YBPR]BPRSHO          + '",'
+    CDATA+='"nomCliente": "'                + ctrans([F:YBPR]BPRNAM,'"' ,"")          + '",'
+    CDATA+='"rsoCliente": "'                + ctrans([F:YBPR]BPRNAM,'"' ,"")          + '",'
+    CDATA+='"cifCliente": "'                + [F:YBPR]CRN             + '",'
+    CDATA+='"codZona": "'                   + num$(0)                 + '",'
+    CDATA+='"codAgente": "'                 + LREP                     + '",'
+    If vireblc([F:YBPC]TSCCOD(1),2) = '' Then
+      CDATA+='"codTipoCliente": "'          + "00"                      + '",'
+    Else
+      CDATA+='"codTipoCliente": "'            + right$([F:YBPC]TSCCOD(1),2)       + '",'
+    Endif
+    CDATA+='"tipIVA": "'                    + func GET_TIPOIVA([F:YBPC]VACBPR) + '",'   # sin recargo = N CON RECARGO = S
+    CDATA+='"tpcDto01": '                   + func GET_DTOCLIE([F:YBPR]BPRNUM) + ','
+    CDATA+='"tpcDto02": '                   + num$(0)                 + ','
+    CDATA+='"tpcDtoPp": '                   + ctrans(num$([F:YBPC]INVDTAAMT(1)),',','.') + ','
+    CDATA+='"codFormaPago": "'              + [F:YBPC]PTE             + '",'
+    CDATA+='"flaNvoCliente": '              + num$(0)                 + ','
+    CDATA+='"flaExpCliente": '              + num$(0)                 + ','
+    If [F:YBPC]TSCCOD(0) = 'YC' Then
+      CDATA+='"codTarifa": "'                 + 'YN40C'               + '",'
+    Elsif [F:YBPC]TSCCOD(0) = 'YP' Then
+      CDATA+='"codTarifa": "'                 + 'YN40'                + '",'
+    Else
+      CDATA+='"codTarifa": "'                 + ''                    + '",'
+    Endif
+    CDATA+='"codGrupoPreciosCliente": "'    + [F:YBPC]TSCCOD(0)       + '",'
+    CDATA+='"flaObsoleto": '                + num$(1)                 + ',' # inactivo
+    CDATA+='"impPendienteRiesgo": '         + num$(0)                 + ','
+    CDATA+='"impVencidoRiesgo": '           + num$(0)                 + ','
+    CDATA+='"impImpagadoRiesgo": '          + num$(0)                 + ','
+    CDATA+='"impCoberturaRiesgo": '         + num$(0)                 + ','
+    CDATA+='"flaBloqueaClienteRiesgo": '    + num$(0)                 + ','
+    Case [F:YBPR]LAN
+      When "SPA"    :   CDATA+='"codIdioma": "' + 'es'                + '",'
+      When Default  :   CDATA+='"codIdioma": "' + 'es'                + '",'
+    Endcase
+    CDATA+='"datIBAN": "'                   + [F:YBID]IBAN + [F:YBID]BIDNUM + '",'
+    CDATA+='"codSector": "'                 + ''                      + '",'
+    CDATA+='"datBlog": "'                   + ''                      + '",'
+    CDATA+='"impFacturacion": '             + num$(0)                 + ','
+    CDATA+='"obsClienteNoEdi": "'           + 'NO HA COMPRADO NUNCA'  + '",'
+    CDATA+='"obsClienteEdi": "'             + ''                      + '",'
+    CDATA+='"Custom1": "'                   + ''                      + '",'
+    CDATA+='"Custom2": "'                   + ''                      + '",'
+    CDATA+='"Custom3": "'                   + ''                      + '",'
+    CDATA+='"Custom4": "'                   + ''                      + '",'
+    CDATA+='"Custom5": "'                   + ''                      + '",'
+    CDATA+='"fecAltaCliente": "'            + num$([F:YBPR]CREDATTIM) + '",'
+    CDATA+='"codMonedaRiesgo": "'           + [F:YBPR]CUR             + '"'
+    CDATA+='}'
+
+    # busca el cliente
+    RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","GET","/api/iClientes?empresa=101&codcliente="+[F:YBPC]BPCSHO,PCOD,PVAL,HCOD,HVAL,'{}',0 ,'',RESHEAD, RESBODY)
+    # el cliente existe
+    If RETVAL=200 Then
+      # se actualiza el cliente
+      RETVAL=func ASYRRESTCLI.EXEC_REST_WS("INACATALOG","PUT","/api/iClientes?empresa=101&codcliente="+[F:YBPC]BPCSHO,PCOD,PVAL,HCOD,HVAL,CDATA,0 ,'',RESHEAD, RESBODY)
+      Call WRITE_LOG("CLIENTES","UPDATE",num$(RETVAL),num$(101),[F:YBPR]BPRSHO,[F:YBPR]BPRNAM,[F:YBPR]CRN)
+    Endif
+
+  Filter [F:YBPR]
+  Close Local File [YBPR],[YBPC],[YBID]
+
+Kill RESHEAD,RESBODY,CDATA,PCOD,PVAL,HCOD,HVAL
+End
+
+################################################################
+Funprog BORRADOTABLAS()
+Local Integer LRES
+  Execsql From "S"  Sql "DELETE FROM [CATALOGODIGITAL\TOTAL].[inaSAM].[dbo].[iPreciosEspLin]            WHERE (codEmpresa = 101 OR codEmpresa = 201)"
+  Execsql From "S"  Sql "DELETE FROM [CATALOGODIGITAL\TOTAL].[inaSAM].[dbo].[iPlantillaComercialLinArt] WHERE (codEmpresa = 101 OR codEmpresa = 201)"
+  Execsql From "S"  Sql "DELETE FROM [CATALOGODIGITAL\TOTAL].[inaSAM].[dbo].[iPlantillaComercial]       WHERE (codEmpresa = 101 OR codEmpresa = 201)"
+  Execsql From "S"  Sql "DELETE FROM [CATALOGODIGITAL\TOTAL].[inaSAM].[dbo].[iTarifasLin]               WHERE (codEmpresa = 101 OR codEmpresa = 201)"
+End LRES
+
+################################################################
+################################################################
+#**
+#* Log de llamadas al WebServices y resultados
+#*
+#* @param PTABLA - Tabla a la que llamamos
+#* @param PMODO  - INSERT - UPDATE
+#* @param PRESULTADO - RESULTADO DEL WS
+#* @param PCAMPO1 - Campos por los que filtramos el Ws
+#* @param PCAMPO2 - Campos por los que filtramos el Ws
+#* @param PCAMPO3 - Campos por los que filtramos el Ws
+#* @param PCAMPO4 - Campos por los que filtramos el Ws
+#*!
+Subprog WRITE_LOG(PTABLA, PMODO, PRESULTADO, PCAMPO1, PCAMPO2, PCAMPO3, PCAMPO4)
+Value Char PTABLA, PMODO, PRESULTADO, PCAMPO1, PCAMPO2, PCAMPO3, PCAMPO4
+
+  If !clalev([YLWS]) Then : Local File YLOGWS [YLWS] : Endif
+
+  Trbegin [F:YLWS]
+  [F:YLWS]TABLA = PTABLA
+  [F:YLWS]MODO  = PMODO
+  [F:YLWS]RESULTADO = PRESULTADO
+  [F:YLWS]CAMPO1 = PCAMPO1
+  [F:YLWS]CAMPO2 = PCAMPO2
+  [F:YLWS]CAMPO3 = PCAMPO3
+  [F:YLWS]CAMPO4 = PCAMPO4
+  Write [F:YLWS]
+  If !fstat Then
+    Commit
+  Else
+    Rollback
+  Endif
+
+  Close Local File [YLWS]
+
+End
+
+################################################################
+Funprog GET_FAMILIA(PFAMILIA)
+Value Char PFAMILIA
+Local Char LRES
+  If !clalev([YATA]) Then : Local File ATABDIV [YATA] : Endif
+  Read [F:YATA]CODE=20;PFAMILIA
+  If !fstat Then
+    LRES = num$([F:YATA]N2)
+  Else
+    LRES = ''
+  Endif
+  Close Local File [YATA]
+
+End LRES
+
+################################################################
+Funprog GET_ORDERSUBFAM(PFAMILIA, PSUBFAMILIA)
+Value Char PSUBFAMILIA, PFAMILIA
+Local Char LRES
+  If !clalev([YATA]) Then : Local File ATABDIV [YATA] : Endif
+  Read [F:YATA]CODE=22;PSUBFAMILIA
+  If !fstat Then
+    If [F:YATA]N2 = 0 Then
+      LRES = '999'
+    Else
+      LRES = num$([F:YATA]N2)
+    Endif
+  Else
+    LRES = '999'
+  Endif
+  Close Local File [YATA]
+End LRES
+
+################################################################
+Funprog GET_SUBFAMILIA(PFAMILIA, PSUBFAMILIA)
+Value Char PSUBFAMILIA, PFAMILIA
+Local Char LRES
+  If PSUBFAMILIA = '' Then
+     Case PFAMILIA
+      When '1000' : PSUBFAMILIA = '9999'
+      When '6000' : PSUBFAMILIA = '9998'
+      When '7030' : PSUBFAMILIA = '9997'
+      When '8022' : PSUBFAMILIA = '9996'
+      When '8001' : PSUBFAMILIA = '9995'
+     Endcase
+  Endif
+  If !clalev([YATA]) Then : Local File ATABDIV [YATA] : Endif
+  Read [F:YATA]CODE=22;PSUBFAMILIA
+  If !fstat Then
+    LRES = num$([F:YATA]N1)
+  Else
+    LRES = ''
+  Endif
+  Close Local File [YATA]
+End LRES
+
+################################################################
+Funprog GET_DTOCLIE(PCLIENTE)
+Value Char PCLIENTE
+Local Char LRES
+
+  If !clalev([F:YTAH]) Then : Local File SPRICFICH [YTAH] : Endif
+  If !clalev([F:YTAL]) Then : Local File SPRICLIST [YTAL] : Endif
+
+  Read [YTAH]SPF0='YN70'
+  If !fstat Then
+    Filter [F:YTAL] Where PLI = [F:YTAH]PLI and PLICRD = [F:YTAH]PLICRD and  PLICRI2 = PCLIENTE
+    Read [F:YTAL] First
+    If !fstat Then
+      LRES = num$([F:YTAL]DCGVAL(5))
+    Else
+      LRES = '0'
+    Endif
+  Else
+    LRES = '0'
+  Endif
+  Close File [F:YTAH], [F:YTAL]
+
+End LRES
+
+################################################################
+Funprog GET_CODCLI(PCLIENTE)
+Value Char PCLIENTE
+Local Char LRES
+  If !clalev([YBPR]) Then : Local File BPARTNER   [YBPR] : Endif
+  Read [F:YBPR]BPR0=PCLIENTE
+  If !fstat Then
+    LRES = [F:YBPR]BPRSHO
+  Else
+    LRES = ''
+  Endif
+
+End LRES
+
+################################################################
+#**
+#* Tabla transcodificación tipos de impuesto. Devuelve la tasa
+#*
+#* @param PVAT
+#*!
+Funprog GET_VAT(PVAT)
+Value Char PCLIENTE
+Local Char LRES
+  If !clalev([YTRA]) Then : Local File AOBJEXTR   [YTRA] : Endif
+  Read [F:YTRA]AOR2=400;PVAT
+  If !fstat Then
+    LRES = ctrans([F:YTRA]CODEXT,',','.')
+  Else
+    LRES = ''
+  Endif
+
+End LRES
+
+################################################################
+#**
+#* Tabla transcodificación tipos de impuesto. Devuelve la tasa
+#*
+#* @param PVAT
+#*!
+Funprog GET_TIPOIMPUESTO(PVAT)
+Value Char PCLIENTE
+Local Char LRES
+  If !clalev([YTRA]) Then : Local File AOBJEXTR   [YTRA] : Endif
+  Read [F:YTRA]AOR2=225;PVAT
+  If !fstat Then
+    LRES = ctrans([F:YTRA]CODEXT,',','.')
+  Else
+    LRES = ''
+  Endif
+
+End LRES
+
+################################################################
+#**
+#* Tabla transcodificación tipos de impuesto. Devuelve la tasa
+#*
+#* @param PVAT
+#*!
+Funprog GET_TIPOIVA(PVAT)
+Value Char PCLIENTE
+Local Char LRES
+  If !clalev([YTRA]) Then : Local File AOBJEXTR   [YTRA] : Endif
+  Read [F:YTRA]AOR2=401;PVAT
+  If !fstat Then
+    LRES = [F:YTRA]CODEXT
+  Else
+    LRES = 'N'
+  Endif
+End LRES
+
+################################################################
+#**
+#* Función que nos busca la linea de dirección en inacatalog
+#*
+#* @param PDIR -- DIRECCIÓN FACTURA
+#* @param PBPR -- CLIENTE
+#*!
+Funprog GET_LINDIRINA(PDIR, PBPR, PFCY)
+Value Char    PDIR
+Value Char    PBPR
+Value Char    PFCY
+Local Char    LRES
+Local Clbfile REQSTR(1)(10)
+Local Clbfile LCODCLIINA(1), LBPADES(1), LBPAADDLIG(1)
+
+  If !clalev([YBPA]) Then : Local File BPADDRESS  [YBPA] : Endif
+
+  Read [F:YBPA]BPA0=1;PBPR;PDIR
+  If !fstat Then
+    LCODCLIINA  = func GET_CODCLI(PBPR)
+    LCODCLIINA  = ctrans(LCODCLIINA,'"','')
+    LCODCLIINA  = ctrans(LCODCLIINA,"'","")
+    LBPADES     = ctrans([F:YBPA]BPADES,'"','')
+    LBPADES     = ctrans([F:YBPA]BPADES,"'","")
+    LBPAADDLIG  = ctrans([F:YBPA]BPAADDLIG,'"','')
+    LBPAADDLIG  = ctrans([F:YBPA]BPAADDLIG,"'","")
+    REQSTR(0) = "SELECT linDirCli as RES FROM [CATALOGODIGITAL\TOTAL].[inaSam].[dbo].[iClienteslDir] "
+    REQSTR(1) = "where codCliente = '" + LCODCLIINA + "' and "
+    REQSTR(2) = "LTRIM(RTRIM(rsoDirCli)) = '" + LBPADES + "' and "
+    REQSTR(3) = "LTRIM(RTRIM(datCalleDirCli)) = '" + LBPAADDLIG + "' and "
+    REQSTR(4) = "codEmpresa = '" + PFCY + "'"
+    LRES = '1'
+
+    For (Integer LDIR) From '5' Sql REQSTR As [YSEM]
+      LRES = num$(LDIR)
+    Next
+  Else
+    LRES = '1'
+  Endif
+End LRES

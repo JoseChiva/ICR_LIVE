@@ -1,0 +1,401 @@
+#<AdxTL>@(#)0.0.0.0 $Revision$ Control facturas
+# 06.330.425 - JC.31032022.Control/aviso al borrar factura si está presentada al SII
+#########################################################################################
+############################################################################
+# Script name : SPEPIH
+# Description : Factura de compra
+# Module      : Compras
+# Version     : 1
+# Created by  : Miguel Llaja
+# Company     : Auren España
+# Created date: 14/04/2022
+############################################################################
+$ACTION
+#If GUSER="ADMIN" Then : Infbox ACTION: Endif
+Case ACTION
+  When "OUVRE"          : Gosub OUVRE
+  When "EXEACT"         : Gosub EXEACT
+  When "AVANTBOUT"      : Gosub AVANTBOUT
+  When "FILGAUCHE"      : Gosub FILGAUCHE
+  When "APRES_MODIF"    : Gosub APRES_MODIF
+  When "PICKE"          : Gosub PICKE
+  When "DEPICK"         : Gosub DEPICK
+  When "APRES_CRE"      : Gosub APRES_CRE
+  When "APRES_MOD"      : Gosub APRES_MOD
+  When "VERIF_MOD"      : Gosub VERIF_MOD
+  When "AP_ANNULE"      : Gosub AP_ANNULE
+  When "FIN_ACTION"     : Gosub FIN_ACTION
+  When Default
+Endcase
+
+Return
+
+##############################################################
+######################    ACCIONES    ########################
+
+##############################################################
+$OUVRE
+##############################################################
+  Local Char LMSS(250)  # 06.330.425.new
+  If !clalev([F:ZCAL])  Local File CPTANALIN [ZCAL] : Endif
+  If !clalev([F:ZSMH])  Local File SMVTH [ZSMH] : Endif
+  If !clalev([F:ZSMD])  Local File SMVTD [ZSMD] : Endif
+  If !clalev([F:ZPID])  Local File PINVOICED [ZPID] : Endif
+  If !clalev([F:ZPID2])  Local File PINVOICED [ZPID2] : Endif
+  If !clalev([F:ZPPL])  Local File PPRICLIST [ZPPL] : Endif
+  If !clalev([F:ZSTJ])  Local File STOJOU [ZSTJ] : Endif
+Return
+
+##############################################################
+$AP_ANNULE
+##############################################################
+Local Decimal TMPQTY
+For I = 0 To [M:PIH3]NBLIG-1
+  If [M:PIH3]ZVCRNUMSMO(I)<>"" and [M:PIH3]ZVCRLINSMO(I) <> 0
+    Read [F:ZSMH]SMH0=20;[M:PIH3]ZVCRNUMSMO(I)
+    If !fstat
+      Read [F:ZSMD]SMD0=20;[M:PIH3]ZVCRNUMSMO(I);[M:PIH3]ZVCRLINSMO(I)
+      If !fstat
+        Raz TMPQTY
+        For [F:ZPID] Where [F:ZPID]ZVCRNUMSMO=[M:PIH3]ZVCRNUMSMO(I) and [F:ZPID]ZVCRLINSMO=[M:PIH3]ZVCRLINSMO(I) and [F:ZPID]NUM<> [M:PIH0]NUM
+          TMPQTY+=[F:ZPID]QTYUOM
+        Next
+        [F:ZSMD]ZQTYFAC=TMPQTY
+        If [F:ZSMD]ZQTYFAC = 0
+          [F:ZSMD]ZFACLIN = 1
+        Else
+          [F:ZSMD]ZFACLIN = 2
+        Endif
+        Rewrite [F:ZSMD]
+      Endif
+      Filter [F:ZSMD] Where [F:ZSMD]VCRTYP=20 and [F:ZSMD]VCRNUM=[M:PIH3]ZVCRNUMSMO(I) and [F:ZSMD]ZQTYFAC<>0
+      If rowcount([F:ZSMD])=0
+        [F:ZSMH]ZFAC=1
+      Else
+        [F:ZSMH]ZFAC=2
+      Endif
+      Rewrite [F:ZSMH]
+      Filter [F:ZSMD]
+    Endif
+  Endif
+Next
+Return
+
+##############################################################
+$FIN_ACTION
+##############################################################
+If currbox = "GAU_CHE8" and REP <> "C" and REP<> "M"
+  ILIS=val(right$(currbox,8))
+  Gosub REMP_LISGAU From GOBJSUB
+Endif
+Return
+
+##############################################################
+$VERIF_MOD
+##############################################################
+Gosub ACTION From SUBPIH
+GPE=1
+
+If OK=0 : Return : Endif
+
+#limpio el detalle por si eliminan líneas de la grilla
+For [F:ZPID2] Where [F:ZPID2]NUM=[M:PIH0]NUM
+  If [F:ZPID2]ZVCRNUMSMO<>"" and [F:ZPID2]ZVCRLINSMO <> 0
+    Read [F:ZSMH]SMH0=20;[F:ZPID2]ZVCRNUMSMO
+    If !fstat
+      Read [F:ZSMD]SMD0=20;[F:ZPID2]ZVCRNUMSMO;[F:ZPID2]ZVCRLINSMO
+      If !fstat
+        [F:ZSMD]ZQTYFAC-=[F:ZPID2]QTYUOM
+        If [F:ZSMD]ZQTYFAC<0 [F:ZSMD]ZQTYFAC=0 Endif
+        If [F:ZSMD]ZQTYFAC=0
+          [F:ZSMD]ZFACLIN = 1
+        Else
+          [F:ZSMD]ZFACLIN = 2
+        Endif
+        Rewrite [F:ZSMD]
+      Endif
+
+      Filter [F:ZSMD] Where [F:ZSMD]VCRTYP=20 and [F:ZSMD]VCRNUM=[F:ZPID2]ZVCRNUMSMO and [F:ZSMD]ZFACLIN<>1
+      If rowcount([F:ZSMD])=0
+        [F:ZSMH]ZFAC=1
+      Else
+        [F:ZSMH]ZFAC=2
+      Endif
+      Rewrite [F:ZSMH]
+      Filter [F:ZSMD]
+    Endif
+  Endif
+Next
+Return
+
+##############################################################
+$APRES_MOD
+##############################################################
+Local Decimal TMPQTY
+# Actualizo con valores de la grilla
+For I = 0 To [M:PIH3]NBLIG-1
+  If [M:PIH3]ZVCRNUMSMO(I)<>"" and [M:PIH3]ZVCRLINSMO(I) <> 0
+    Read [F:ZSMH]SMH0=20;[M:PIH3]ZVCRNUMSMO(I)
+    If !fstat
+      Read [F:ZSMD]SMD0=20;[M:PIH3]ZVCRNUMSMO(I);[M:PIH3]ZVCRLINSMO(I)
+      If !fstat
+        Raz TMPQTY
+        For [F:ZPID] Where [F:ZPID]ZVCRNUMSMO=[M:PIH3]ZVCRNUMSMO(I) and [F:ZPID]ZVCRLINSMO=[M:PIH3]ZVCRLINSMO(I) and [F:ZPID]NUM<> [M:PIH0]NUM
+          TMPQTY+=[F:ZPID]QTYUOM
+        Next
+        [F:ZSMD]ZQTYFAC=[M:PIH3]QTYSTU(I)+TMPQTY
+        If [F:ZSMD]QTYPCU<=[F:ZSMD]ZQTYFAC
+          [F:ZSMD]ZFACLIN = 3
+        Else
+          [F:ZSMD]ZFACLIN = 2
+        Endif
+        Rewrite [F:ZSMD]
+      Endif
+      Filter [F:ZSMD] Where [F:ZSMD]VCRTYP=20 and [F:ZSMD]VCRNUM=[M:PIH3]ZVCRNUMSMO(I) and [F:ZSMD]ZFACLIN<>3
+      If rowcount([F:ZSMD])=0
+        [F:ZSMH]ZFAC=3
+      Else
+        [F:ZSMH]ZFAC=2
+      Endif
+      Rewrite [F:ZSMH]
+      Filter [F:ZSMD]
+    Endif
+  Endif
+Next
+Return
+
+##############################################################
+$APRES_CRE
+##############################################################
+For I = 0 To [M:PIH3]NBLIG-1
+  If [M:PIH3]ZVCRNUMSMO(I)<>"" and [M:PIH3]ZVCRLINSMO(I) <> 0
+    Read [F:ZSMH]SMH0=20;[M:PIH3]ZVCRNUMSMO(I)
+    If !fstat
+      Read [F:ZSMD]SMD0=20;[M:PIH3]ZVCRNUMSMO(I);[M:PIH3]ZVCRLINSMO(I)
+      If !fstat
+        [F:ZSMD]ZQTYFAC+=[M:PIH3]QTYSTU(I)
+        If [F:ZSMD]QTYPCU<=[F:ZSMD]ZQTYFAC
+          [F:ZSMD]ZFACLIN = 3
+        Else
+          [F:ZSMD]ZFACLIN = 2
+        Endif
+        Rewrite [F:ZSMD]
+      Endif
+      Filter [F:ZSMD] Where [F:ZSMD]VCRTYP=20 and [F:ZSMD]VCRNUM=[M:PIH3]ZVCRNUMSMO(I) and [F:ZSMD]ZFACLIN<>3
+      If rowcount([F:ZSMD])=0
+        [F:ZSMH]ZFAC=3
+      Else
+        [F:ZSMH]ZFAC=2
+      Endif
+      Rewrite [F:ZSMH]
+      Filter [F:ZSMD]
+    Endif
+  Endif
+Next
+Return
+
+##############################################################
+$PICKE
+##############################################################
+If currbox = "GAU_CHE8"
+  NOL=[M:PIH3]NBLIG
+  Local Integer FSALIR : Raz FSALIR
+  For I = 0 To [M:PIH3]NBLIG-1
+    If [M:PIH3]ZVCRNUMSMO(I)=[F:SMD]VCRNUM and [M:PIH3]ZVCRLINSMO(I) = [F:SMD]VCRLIN
+      Errbox "Esta línea ya se encuentra en la factura"
+      FSALIR=1
+      Break
+    Endif
+  Next
+  If FSALIR=1 : Return Endif
+  [M:PIH3]TYPORI(NOL)=5
+  [M:PIH3]ITMREF(NOL)=[F:SMD]ITMREF
+  [M:PIH3]ITMDES(NOL)=[F:SMD]ITMDES1
+
+  nolign=NOL+1
+  Call AM_ITMREF([F:SMD]ITMREF) From SUBPIH
+  [M:PIH3]UOM(NOL) = [F:SMD]PCU
+  [M:PIH3]QTYUOM(NOL) = [F:SMD]QTYPCU-[F:SMD]ZQTYFAC
+  Call AM_QTYUOM([F:SMD]QTYPCU) From SUBPIH
+  Filter [F:ZPPL] Where [F:ZPPL]PLICRI1=[F:SMD]WRH and [F:ZPPL]PLICRI2=[F:SMD]ITMREF and date$>=[F:ZPPL]PLISTRDAT and date$<=[F:ZPPL]PLIENDDAT
+  If rowcount([F:ZPPL])>0
+    Read [F:ZPPL] First
+    [M:PIH3]NETPRI(NOL) = [F:ZPPL]PRI
+  Else
+    [M:PIH3]NETPRI(NOL) = 0
+  Endif
+  Filter [F:ZPPL]
+  Call AM_NETPRI([M:PIH3]NETPRI(NOL)) From SUBPIH
+  Read [F:ZCAL]CAL0="SMD";20;[F:SMD]VCRNUM;[F:SMD]VCRLIN;0;"";1
+  If !fstat
+    [M:PIH3]CCE1(NOL) = [F:ZCAL]CCE(0)
+    [M:PIH3]CCE2(NOL) = [F:ZCAL]CCE(1)
+  Endif
+  [M:PIH3]ZVCRNUMSMO(NOL)=[F:SMD]VCRNUM
+  [M:PIH3]ZVCRLINSMO(NOL)=[F:SMD]VCRLIN
+  Read [F:ZSMH]SMH0 = 20;[F:SMD]VCRNUM
+  If !fstat
+    Read [F:ZSTJ]STJ1 = [F:ZSMH]STOFCY;20;[F:SMD]VCRNUM;[F:SMD]VCRLIN#Esto trabaja por linea de sal. varia, hay que filtrar de otra forma si se usa con lineas de stock
+    If !fstat
+      [M:PIH3]ZLOT(NOL)=[F:ZSTJ]LOT
+      [M:PIH3]ZSERNUM(NOL)=[F:ZSTJ]SERNUM
+    Endif
+  Endif
+  status=0 : Call LINNUM("PIDLIN") From TABLEAUX
+  [M:PIH3]NBLIG+=1 : Call APRES_NBLIG From SUBPIH
+Endif
+Return
+
+##############################################################
+$DEPICK
+##############################################################
+If currbox = "GAU_CHE8"
+  Raz J
+  While J<[M:PIH3]NBLIG
+    K=find([F:SMD]VCRNUM,[M:PIH3]ZVCRNUMSMO(J..[M:PIH3]NBLIG-1))
+    I=J+(K-1)
+    If K=0
+      J=[M:PIH3]NBLIG
+    Elsif [M:PIH3]TYPORI(I)=5 & [M:PIH3]ZVCRLINSMO(I)=[F:SMD]VCRLIN & [M:PIH3]CREFLG(I)=0
+      WPICK=1
+      nolign=I+1 : status=65
+      Call AVANT_NBLIG From SUBPIH
+      Dela I,1,[M:PIH3]NBLIG-1 [M:PIH3]NBLIG : [M:PIH3]NBLIG-=1 : [M:PIH3]CLCFLG=2
+      J+=K : K=0 : status=0
+    Else
+      J+=K : K=0
+    Endif
+  Wend
+Endif
+Return
+
+##############################################################
+$APRES_MODIF
+##############################################################
+#Actualizo lista izquierda si se modifica la planta o el tercero
+If find(COUZON,"FCY","BPR") and currbox = "GAU_CHE8"
+  ILIS=val(right$(currbox,8))
+  Gosub REMP_LISGAU From GOBJSUB
+Endif
+Return
+
+##############################################################
+$FILGAUCHE
+##############################################################
+Gosub ACTION From SUBPIH
+GPE=1
+If currbox = "GAU_CHE8"
+  WCRITERE="[F:SMH]ZBPC=[M:PIH0]FCY & [F:SMD]WRH=[M:PIH0]BPR & ([F:SMD]QTYPCU-[F:SMD]ZQTYFAC) > 0"
+  Read [F:BPS]BPS0=[M:PIH0]BPR
+  If [F:BPS]BSGCOD <> "DIP" or [M:PIH0]FCY = "" or  [M:PIH0]BPR = "" or (REP <> "C" and REP<> "M"):WCRITERE = "1=2" Endif
+  Call ADDCRIT(FILGAUSUP, IFILGAUSUP, "FILGAUSUP", WCRITERE, "&") From GOBJSUB
+Endif
+Return
+
+##############################################################
+$EXEACT
+##############################################################
+  Case BOUT
+    When "S"    : LMSS = "el borrado" : Gosub COMPRUEBA_SII               # 06.330.425.new
+  Endcase
+Return
+
+##############################################################
+$AVANTBOUT
+##############################################################
+  Case BOUT
+    When  "P"   : LMSS = "la cancelación contable" : Gosub COMPRUEBA_SII  # 06.330.425.new
+  Endcase
+Return
+
+##############################################################
+######################    ETIQUETAS    #######################
+##############################################################
+##############################################################
+# 06.330.425.ini
+$COMPRUEBA_SII
+  If !clalev([F:ZDSII]) Then : Local File DCLSII [F:ZDSII] : Endif
+  Filter [F:ZDSII] Where VCRNUM = [M:PIH0]NUM and VCRSTA <> 1
+  Read [F:ZDSII] First
+  If !fstat Then
+    Local Integer YESNO : YESNO = 1
+    Call OUINON("La factura "+[M:PIH0]NUM+" ya ha sido enviada al SII.\¿Realmente deseas continuar con "+LMSS+"?",YESNO) From GESECRAN
+    If YESNO <> 2 Then
+      OK=0
+      Return
+    Endif
+  Endif
+  Filter [F:ZDSII]
+  Close Local File [ZDSII]
+Return
+# 06.330.425.fin
+######################################################################################
+## Etiqueta añadida por el supervisor (pantalla PIH0) 10/07/2022 16:19:13 (AURJR)
+######################################################################################
+Subprog AM_ACCDAT(VALEUR)
+#----------------------------#
+# Après modif date comptable #
+#----------------------------#
+Variable Date    VALEUR
+#-----
+If !find(GREP,"C","D")
+  #----- Récupération code compteur -----#
+  If !clalev([F:ANM])  Local File ACODNUM [ANM] : Endif
+  If [F:TCA]MODULE<>6 | [F:TCA]CPY<>GSOCIETE
+    Local Integer OK
+    Call LECTCA(6,OK) From SUBTCA
+    If fstat | !OK  Raz [F:TCA] : Endif
+  Endif
+  GMANCOU=[F:TCA]MANCOU([M:PIH0]PIHTYP+6) : GCODNUM=[F:TCA]CODNUM([M:PIH0]PIHTYP+6)
+  If [F:GTE]TYP<>[M:PIH0]GTE
+    #Read [GTE] GTE0=[M:PIH0]GTE
+    Local Integer WRET
+    Call LEC_GTE_LEG(GCURLEG,[M:PIH0]GTE,WRET) From TRTLECLEG
+    If WRET : Raz [F:GTE] : Endif
+  Endif
+  If [F:GTE]COU<>""
+    GMANCOU=[F:GTE]MANNUM : GCODNUM=[F:GTE]COU
+  Endif
+  #----- Controle date pour certification NF -----#
+  Call CTLDAT_CNF(6,GFCY,[M:PIH0]ACCDAT,VALEUR,GCODNUM,[M:PIH0]NUM) From CONTX3
+  If mkstat
+    Call ERREUR(GMESSAGE) From GESECRAN : Raz GMESSAGE : End
+  Endif
+Endif
+#----- Si avoir, contrôle date facture origine pas supérieure à date d'avoir -----#
+If [M:PIH0]PIHTYP=3 & [M:PIH1]INVNUM<>""
+  If !clalev([PIHB])  Local File PINVOICE [PIHB] : Endif
+  Read [PIHB] PIH0=[M:PIH1]INVNUM : If fstat Raz [F:PIHB] : Endif
+  If [F:PIHB]ACCDAT>VALEUR
+    Call ERREUR([M:PIH1]INVNUM-"("+num$([F:PIHB]ACCDAT)+")\"-mess(407,194,1)) From GESECRAN
+    mkstat=1 : End
+  Endif
+#----- Si des lignes existent, contrôle date des documents d'origine -----#
+Elsif GCTLDATORI=2 & [M:PIH3]NBLIG>0
+  Call CTLDAT_ORI(VALEUR) From SUBPIHD
+  If mkstat
+    Call ERREUR(GMESSAGE) From GESECRAN : Raz GMESSAGE : End
+  Endif
+Endif
+#----- Initialisation de la date facture fournisseur -----#
+If !varinit([M:PIH1]BPRDAT) | [M:PIH1]BPRDAT=[M:PIH0]ACCDAT
+  [M:PIH0]ACCDAT=VALEUR
+#  Call AM_BPRDAT(VALEUR)
+#  [M:PIH1]BPRDAT=VALEUR
+  Affzo [PIH1]BPRDAT
+Endif
+#-----
+If [M:PIH1]CUR<>"" & GPIHCURDAT<>2
+  [M:PIH1]RATDAT=VALEUR
+  [M:PIH0]ACCDAT=VALEUR
+  Call INI_COURS("PIH1",GSOCIETE,[M:PIH1]CUR,[M:PIH1]RATDAT,[M:PIH1]CURTYP) From SUBBICS
+  #-----
+  If !GIMPORT
+    Affzo [PIH1]RAT1, LABEL, RAT2, CURMLT
+  Endif
+Endif
+End
+
+
+######################################################################################
+
