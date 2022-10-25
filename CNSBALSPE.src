@@ -9,14 +9,14 @@
 # Created date: 27/06/2022
 ############################################################################
 # ID01 - 02/08/2022 - J.Rodriguez - Se agrega campo "descripción corta"
-#
+#06.399.365 - JC.24102022.Detalle clientes particulares no coincide con mayor
 ############################################################################
 
 $ACTION
 #If GUSER="ADMIN" Then : Infbox ACTION: Endif
 Case ACTION
-  When "AV_AFFICHE"          : Gosub AV_AFFICHE
-
+  When "AV_AFFICHE"         : #Gosub AV_AFFICHE       #06.399.365.new (comento la llamada a AV_AFFICHE porque el mismo código se ejecuta en UPDENQBAL)
+  When "UPDENQBAL"          : Gosub UPDENQBAL         #06.399.365.new (punto de entrada)
   When Default
 Endcase
 
@@ -37,6 +37,23 @@ For IX=0 To [M:BAL2]NBLIG-1
  If KX = JX : Break Endif
  KX+=1
 Next
+Return
+
+############################################################################
+$UPDENQBAL
+#06.399.365.ini
+  If [M:BAL2]FINDEBLED(NOL) = 0 and [M:BAL2]FINCDTLED(NOL) = 0 and [M:BAL1]ZSAL=2
+    NOL -=1
+  Else
+    Case TYPBAL
+      When 1
+        Call LECTEXTRA([M:BAL2]ZINTITSHO(NOL),"GACCOUNT","SHOTRA",[M:BAL1]COA,[M:BAL2]COMPTE(NOL)) From ATEXTRA
+      When 2
+         Read [BPR]BPR0 = [M:BAL2]COMPTE(NOL)
+         If !fstat : [M:BAL2]ZINTITSHO(NOL) = [F:BPR]BPRSHO : Endif
+    Endcase
+  Endif
+#06.399.365.fin
 Return
 
 ############################################################################
